@@ -67,3 +67,6 @@ lightning_logs/
 
 # Local tool config
 .claude/
+
+# Pipeline outputs
+outputs/
