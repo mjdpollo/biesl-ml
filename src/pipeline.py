@@ -36,18 +36,24 @@ warnings.filterwarnings("ignore")  # filterwarnings handled per-window
 DATA_DIR = "data"
 OUT_DIR = "outputs"
 
-PHASE_CLASSES = ["baseline", "meditation", "plank"]
+PHASE_CLASSES = ["baseline", "meditation", "stress"]
 
 
 def assign_activity(phase: str, stressor: str) -> str:
-    """Collapse rest+recovery -> 'baseline'; split stress by stressor type."""
+    """Collapse rest+recovery -> 'baseline'; split stress by stressor type.
+
+    NOTE: 'pla' (plank physical stressor) was renamed to the generic 'stress'
+    class so the WESAD TSST label can share the name. The class still represents
+    physical stress in local data; the semantic claim is now "elevated arousal"
+    rather than "plank" specifically.
+    """
     if phase in ("rest", "recovery"):
         return "baseline"
     # phase == "stress"
     if stressor == "medi":
         return "meditation"
     if stressor == "pla":
-        return "plank"
+        return "stress"
     if stressor == "math":
         return "math"
     return f"stress_{stressor}"
