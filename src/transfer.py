@@ -24,13 +24,17 @@ from collections import Counter
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
     confusion_matrix,
     f1_score,
 )
-from sklearn.preprocessing import LabelEncoder
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from xgboost import XGBClassifier
 
 from .pipeline import PHASE_CLASSES, build_feature_table
@@ -70,6 +74,33 @@ def _make_xgb() -> XGBClassifier:
     )
 
 
+def _make_knn() -> Pipeline:
+    """KNN needs imputation + scaling (NaN-intolerant and distance-based)."""
+    return Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler",  StandardScaler()),
+        ("clf",     KNeighborsClassifier(n_neighbors=7, weights="distance", metric="euclidean")),
+    ])
+
+
+def _make_rf() -> Pipeline:
+    """RandomForest needs imputation only — trees don't care about feature scale."""
+    return Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("clf",     RandomForestClassifier(
+            n_estimators=400, max_depth=None, min_samples_leaf=2,
+            max_features="sqrt", random_state=0, n_jobs=-1,
+        )),
+    ])
+
+
+MODEL_FACTORIES = {
+    "xgboost":      _make_xgb,
+    "knn":          _make_knn,
+    "randomforest": _make_rf,
+}
+
+
 def _metrics(y_true_lbl: np.ndarray, y_pred_lbl: np.ndarray) -> dict:
     return dict(
         accuracy=float(accuracy_score(y_true_lbl, y_pred_lbl)),
@@ -89,12 +120,13 @@ def _metrics(y_true_lbl: np.ndarray, y_pred_lbl: np.ndarray) -> dict:
 
 def _fit_predict(
     train_df: pd.DataFrame, test_df: pd.DataFrame, feat_cols: list[str], le: LabelEncoder,
+    *, model: str = "xgboost",
 ) -> dict:
     if len(train_df) == 0:
         raise ValueError("empty training set")
-    # XGBoost needs ALL classes present in y_train. Pad with 1 NaN-only row per
-    # missing class so the encoder shape stays consistent (rare, only happens
-    # for tiny folds).
+    # XGBoost / KNN / RF all need ALL classes present in y_train. Pad with 1
+    # NaN-only row per missing class so the encoder shape stays consistent
+    # (rare, only happens for tiny folds).
     present = set(train_df["activity"].unique())
     missing = set(PHASE_CLASSES) - present
     if missing:
@@ -109,7 +141,7 @@ def _fit_predict(
 
     X_tr, y_tr = _xy(train_df, feat_cols, le)
     X_te, y_te = _xy(test_df, feat_cols, le)
-    clf = _make_xgb()
+    clf = MODEL_FACTORIES[model]()
     clf.fit(X_tr, y_tr)
     y_pred = clf.predict(X_te)
     return _metrics(le.inverse_transform(y_te), le.inverse_transform(y_pred))
@@ -121,8 +153,14 @@ def run_three_way(
     *,
     out_dir: str = "outputs",
     save: bool = True,
+    model: str = "xgboost",
+    save_path: str | None = None,
 ) -> dict:
-    """Leave-one-recording-out comparison: A / A_all / B / C, all tested on local."""
+    """Leave-one-recording-out comparison: A / A_all / B / C, all tested on local.
+
+    `model`: which classical model to use ('xgboost', 'knn', 'randomforest').
+    `save_path`: override the default output filename (used by multi-model runner).
+    """
     os.makedirs(out_dir, exist_ok=True)
     if df_local is None:
         print("[local] building feature table ...")
@@ -160,14 +198,14 @@ def run_three_way(
             pass
 
         # A: local-only, shared features (apples-to-apples vs B/C)
-        m_local = _fit_predict(train_local, test_df, shared_cols, le)
+        m_local = _fit_predict(train_local, test_df, shared_cols, le, model=model)
         # A_all: local-only, all features (shows what the mic adds)
-        m_local_all = _fit_predict(train_local, test_df, full_cols, le)
+        m_local_all = _fit_predict(train_local, test_df, full_cols, le, model=model)
         # B: WESAD-only -> local test
-        m_wesad = _fit_predict(df_wesad, test_df, shared_cols, le)
+        m_wesad = _fit_predict(df_wesad, test_df, shared_cols, le, model=model)
         # C: WESAD + local-train -> local test
         train_combined = pd.concat([df_wesad, train_local], ignore_index=True)
-        m_combined = _fit_predict(train_combined, test_df, shared_cols, le)
+        m_combined = _fit_predict(train_combined, test_df, shared_cols, le, model=model)
 
         folds.append(dict(
             recording=rec,
@@ -192,19 +230,77 @@ def run_three_way(
     summary = _aggregate(folds)
     out = dict(
         classes=PHASE_CLASSES,
+        model=model,
         shared_features=shared_cols,
         full_features=full_cols,
         folds=folds,
         summary=summary,
     )
     if save:
-        path = os.path.join(out_dir, "transfer_results.json")
+        default_name = (
+            "transfer_results.json" if model == "xgboost"
+            else f"transfer_results_{model}.json"
+        )
+        path = save_path or os.path.join(out_dir, default_name)
         with open(path, "w") as fh:
             json.dump(out, fh, indent=2)
         print(f"\n  -> wrote {path}")
 
     _print_summary(summary)
     return out
+
+
+def run_three_way_all_models(
+    *,
+    out_dir: str = "outputs",
+    models: tuple[str, ...] = ("xgboost", "knn", "randomforest"),
+) -> dict:
+    """Run the three-way LORO comparison for every model in `models` and
+    save a combined JSON containing all of them. Re-uses the same local/WESAD
+    feature tables across runs so each only builds once.
+    """
+    print("[local] building feature table (shared across models) ...")
+    df_local = build_feature_table()
+    print("[wesad] building feature table (shared across models) ...")
+    df_wesad = build_wesad_feature_table()
+
+    by_model: dict[str, dict] = {}
+    for m in models:
+        print(f"\n========== running model: {m} ==========")
+        by_model[m] = run_three_way(
+            df_local=df_local, df_wesad=df_wesad, model=m, out_dir=out_dir,
+        )
+
+    combined = dict(
+        classes=PHASE_CLASSES,
+        models=list(models),
+        by_model=by_model,
+    )
+    path = os.path.join(out_dir, "transfer_results_all_models.json")
+    with open(path, "w") as fh:
+        json.dump(combined, fh, indent=2)
+    print(f"\n  -> wrote {path}")
+
+    # Compact cross-model summary.
+    print("\n========== Cross-model summary (LORO mean, test=local) ==========")
+    header = f"{'model':<14s} {'cond':<22s} {'acc':>6s} {'macroF1':>9s}  " + \
+             "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
+    print(header)
+    cond_labels = {
+        "A_local_shared": "A local-only (shared)",
+        "A_local_full":   "A+ local-only (+mic)",
+        "B_wesad":        "B WESAD-only",
+        "C_combined":     "C WESAD+local",
+    }
+    for m, res in by_model.items():
+        for k, label in cond_labels.items():
+            s = res["summary"][k]
+            per_cls = "  ".join(f"{s['per_class_f1_mean'][c]:6.3f}" for c in PHASE_CLASSES)
+            print(
+                f"{m:<14s} {label:<22s} {s['mean_accuracy']:>6.3f} "
+                f"{s['mean_macro_f1']:>9.3f}  {per_cls}"
+            )
+    return combined
 
 
 def _aggregate(folds: list[dict]) -> dict:
