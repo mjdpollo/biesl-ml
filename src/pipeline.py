@@ -61,14 +61,19 @@ def assign_activity(phase: str, stressor: str) -> str:
 
 # ----------------------------------------------------------------------------
 
-def build_feature_table(data_dir: str = DATA_DIR) -> pd.DataFrame:
-    """Process every recording and produce a (n_windows, n_features + meta) DataFrame."""
+def build_feature_table(data_dir: str = DATA_DIR, *, include_temp: bool = False) -> pd.DataFrame:
+    """Process every recording and produce a (n_windows, n_features + meta) DataFrame.
+
+    `include_temp` adds the optional temperature ablation features (mean, std,
+    slope) alongside the eight PDF features. The PDF feature set is the
+    default; temperature is opt-in.
+    """
     records: list[dict] = []
     for path in list_recordings(data_dir):
         t0 = time.time()
         rec = load_recording(path)
         pp = preprocess_recording(rec)
-        wins = windows_for_recording(pp)
+        wins = windows_for_recording(pp, include_temp=include_temp)
         for w in wins:
             row = {
                 "rec_name": w.rec_name,

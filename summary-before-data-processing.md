@@ -1,119 +1,97 @@
-# Stress / Meditation / Baseline Classification — Initial Comparison
+# Stress / Meditation / Baseline Classification — Local-only Comparison
 
 **Task.** Per-window 3-class classification: `baseline` / `meditation` / `stress`.
-**Test set is always the local data**, held out one recording at a time (LORO, 7 folds). WESAD is used only as a source of additional training data.
+**Test set is always a held-out local recording (LORO, 7 folds).** WESAD is NOT used in this run — local data only.
+**Feature set: the eight parameters listed in `features.pdf`**, with an explicit ablation against adding skin temperature.
 
-## Datasets
+## Feature pipeline (per features.pdf)
 
-| Dataset | Source | Channels used | Subjects | Windows | Class balance (baseline / meditation / stress) |
-|---|---|---|---|---|---|
-| **Local** | wearable CSVs in `data/` | ECG, Resp, Temp, Mic | 2 (`mta`, `nvt`) | 375 | 270 / 95 / **10** |
-| **WESAD** | Schmidt et al. 2018, chest RespiBAN | ECG, Resp, Temp (no mic) | 3 of 15 (S7, S8, S9) | 507 | 231 / 150 / 126 |
+| Feature | Channel | Preprocessing | Computation |
+|---|---|---|---|
+| `csi` | Microphone | BP 20–200 Hz → Shannon energy `−x² log(x²)` → peak detection | S2/S1 amplitude ratio paired to ECG R-peaks (S1 within R+0–200 ms, S2 within R+200–500 ms) |
+| `hr` | ECG | LP 150 Hz + detrend → Pan–Tompkins → NN cleaning (reject NN<300 ms, NN>1500 ms, or NN deviating >20% from median of surrounding ~10 beats; cubic-spline interpolation for rejected) | 60 000 / mean(NN_ms) |
+| `hrv_rmssd` | ECG | same NN series | √(mean of squared successive NN differences) |
+| `hrv_lf` | ECG | Welch on tachogram interpolated to 4 Hz, Hann window, 60 s segments | area under PSD in 0.04–0.15 Hz |
+| `hrv_hf` | ECG | same Welch | area under PSD in 0.15–0.40 Hz |
+| `hrv_lf_hf` | ECG | — | `hrv_lf / hrv_hf` |
+| `rr` | Respiration | detrend → 0.5 s MA → Cheby II LP (stopband 1 Hz) → Butterworth HP 0.12 Hz, slope-based peak detection with adaptive 1/3 × mean-of-last-8-amplitudes threshold | 60 / mean(interval, s) |
+| `rrv` | Respiration | same chain | std of the last 5 breath intervals (s) |
 
-WESAD label mapping: `1→baseline`, `4→meditation`, **`2 (TSST psychological stress) → stress`** (caveat — the local `stress` class is physical/plank exercise; psychological and physical stress share elevated HR but breathing signatures differ).
-Window: 30 s, 50 % overlap, all signals resampled to 250 Hz, per-recording robust z-score.
+**Window: 60 s with 50 % overlap.** The 1-min minimum is required by the Welch step for `hrv_lf` / `hrv_hf`. This halves the window count vs the previous 30 s pipeline.
+
+## Dataset (local only)
+
+| | windows | baseline | meditation | stress |
+|---|---|---|---|---|
+| Local (7 recordings, 2 subjects) | 180 | 131 | 45 | **4** |
+
+The `stress` class has only **4 windows** total under the 60 s schema — a hard floor on what any model can do on this class.
 
 ## Models
 
-| Family | Inputs | Architecture | Params |
-|---|---|---|---|
-| Classical — **KNN** | 24 hand-crafted features (HRV, breathing, temp) shared between datasets; +6 mic features for "+mic" variant | median-imputer → StandardScaler → KNN (k=7, distance-weighted, Euclidean) | n/a |
-| Classical — **RandomForest** | same | median-imputer → RandomForest (400 trees, `min_samples_leaf=2`, `max_features='sqrt'`) | n/a |
-| Classical — **XGBoost** | same (XGB handles NaN natively, no imputer/scaler needed) | XGBoost (400 trees, depth=4, lr=0.05) | n/a |
-| Deep | Raw 3-ch waveform (ECG, Resp, Temp), 250 Hz × 30 s = (3, 7500) | 5-block 1D CNN + AdaptiveAvgPool + MLP head, AMP, AdamW, cosine LR, class-weighted CE, early stopping | 636 k |
+KNN (k=7, distance-weighted, Euclidean), RandomForest (400 trees, `min_samples_leaf=2`), XGBoost (400 trees, depth=4, lr=0.05).
 
-Three transfer conditions, identical across both families:
+## Results — LORO mean, local-only
 
-| Condition | Training data | DL init |
-|---|---|---|
-| **A** | local \ {held-out recording} | random |
-| **B** | WESAD only | random |
-| **C-combined** (classical) / **C-full** (DL) | WESAD ∪ (local \ {held-out}) | DL inits from WESAD-pretrained weights, fine-tune at LR=1e-4 |
-| C-head (DL only) | local fine-tune with conv layers frozen | from WESAD-pretrained weights |
+### Configuration (i): PDF features only — 8 features
 
-## Results — macro-F1, LORO mean (test set always local)
+| Model | Acc | macro-F1 | F1[baseline] | F1[meditation] | F1[stress] |
+|---|---|---|---|---|---|
+| KNN | 0.856 | 0.686 | 0.903 | 0.556 | 0.000 |
+| RandomForest | 0.901 | 0.764 | 0.934 | 0.595 | 0.000 |
+| **XGBoost** | 0.897 | **0.825** | 0.930 | 0.577 | **0.143** |
 
-Bold = best in row.
+### Configuration (ii): PDF + skin temperature — 11 features
 
-| Condition | KNN | RandomForest | XGBoost | 1D-CNN |
-|---|---|---|---|---|
-| **A** local-only (shared feats) | 0.634 | **0.771** | 0.751 | 0.694 |
-| A+ local-only with mic | 0.718 | 0.730 | 0.583 | n/a |
-| **B** WESAD-only → local | 0.366 | **0.481** | 0.419 | 0.153 |
-| **C** transfer / combined | 0.591 | **0.745** | 0.639 | 0.629 (C-full) |
-| C-head (DL, frozen conv) | n/a | n/a | n/a | 0.496 |
+| Model | Acc | macro-F1 | F1[baseline] | F1[meditation] | F1[stress] |
+|---|---|---|---|---|---|
+| KNN | 0.829 | 0.623 | 0.892 | 0.441 | 0.000 |
+| RandomForest | 0.886 | 0.747 | 0.922 | 0.571 | 0.000 |
+| XGBoost | 0.922 | 0.792 | 0.947 | 0.636 | 0.000 |
 
-## Results — accuracy, LORO mean
+### Delta — (with temperature) − (PDF only)
 
-| Condition | KNN | RandomForest | XGBoost | 1D-CNN |
-|---|---|---|---|---|
-| A local-only (shared feats) | 0.877 | **0.923** | 0.879 | 0.877 |
-| A+ local-only with mic | 0.892 | 0.905 | 0.835 | n/a |
-| B WESAD-only → local | 0.557 | **0.683** | 0.549 | 0.217 |
-| C transfer / combined | 0.855 | **0.874** | 0.854 | 0.846 |
+| Model | Δ accuracy | Δ macro-F1 | Δ F1[baseline] | Δ F1[meditation] | Δ F1[stress] |
+|---|---|---|---|---|---|
+| KNN | −0.027 | **−0.063** | −0.011 | −0.115 | 0.000 |
+| RandomForest | −0.015 | −0.018 | −0.011 | −0.024 | 0.000 |
+| XGBoost | +0.025 | −0.033 | +0.018 | +0.059 | **−0.143** |
 
-### Per-class F1 (LORO mean)
+### Per-fold macro-F1 (XGBoost, PDF only)
 
-| Condition × Model | baseline | meditation | stress |
-|---|---|---|---|
-| A — KNN | 0.927 | 0.588 | 0.000 |
-| A — RandomForest | **0.952** | **0.643** | 0.057 |
-| A — XGBoost | 0.920 | 0.577 | 0.048 |
-| A — 1D-CNN | 0.924 | 0.535 | **0.159** |
-| B — KNN | 0.632 | 0.447 | 0.018 |
-| B — RandomForest | 0.798 | 0.321 | 0.071 |
-| B — XGBoost | 0.649 | 0.426 | 0.071 |
-| B — 1D-CNN | 0.256 | 0.000 | **0.203** |
-| C — KNN | 0.916 | 0.558 | 0.063 |
-| C — RandomForest | 0.910 | **0.607** | 0.095 |
-| C — XGBoost | 0.913 | 0.509 | 0.071 |
-| C-full — 1D-CNN | 0.885 | 0.550 | 0.149 |
+| Fold (test recording) | macro-F1 |
+|---|---|
+| mta-5-17-medi | 0.721 |
+| mta-5-17-medi (1) | 1.000 |
+| mta-5-17-pla-1 | **1.000** |
+| mta-5-17-pla-2 | 0.463 |
+| mta-5-8-medi | 0.862 |
+| nvt-5-15-medi | 0.769 |
+| nvt-5-8-medi | 0.958 |
 
-Note: **the 1D-CNN is the only model that ever exceeds 0.15 on the `stress` class** — the class-weighted cross-entropy loss forces it to predict `stress` more often than the tree models do. Trees default to ignoring the rare class entirely (F1≈0.05). At higher stress counts this gap may close.
-
-### Per-fold variance is large — aggregate hides it
-
-| Fold (test recording) | A (CNN) | C-full (CNN) | Δ |
-|---|---|---|---|
-| mta-5-17-medi | 0.925 | **0.943** | +0.02 |
-| mta-5-17-medi (1) | 0.959 | 0.635 | −0.32 |
-| mta-5-17-pla-1 | 0.538 | **0.774** | **+0.24** |
-| mta-5-17-pla-2 | 0.434 | 0.457 | +0.02 |
-| mta-5-8-medi | 0.639 | 0.658 | +0.02 |
-| nvt-5-15-medi | 0.398 | 0.398 | 0 |
-| nvt-5-8-medi | 0.962 | 0.535 | −0.43 |
+Per-fold variance is still substantial (0.46 → 1.00). The two `pla-*` folds (the only ones with `stress` in the test set) bracket the spread.
 
 ## Key findings
 
-1. **RandomForest is the best classical model — and the best model overall on macro-F1.** RF wins every condition (A, B, C) on both accuracy and macro-F1 and is the strongest at handling the WESAD→local domain shift (B = 0.481 vs KNN 0.366, XGB 0.419, CNN 0.153). The bagging averages out the device-shift noise that hurts XGBoost.
-2. **KNN reacts very differently to the microphone.** With mic features added, KNN *gains* +0.08 macro-F1 (0.634 → 0.718) while XGBoost *loses* −0.17 (0.751 → 0.583). Distance-based learners can extract signal from the extra mic dimensions when scaled properly; gradient-boosted trees overfit the same dimensions at this small sample size. Worth a follow-up.
-3. **The 1D CNN doesn't beat the best classical model at this scale.** Classical RF: 0.771 macro-F1 local-only; CNN: 0.694. With only ~375 local windows, hand-crafted HRV/breathing/temp features are denser information than raw waveforms.
-4. **Zero-shot WESAD→local is poor for every model.** Best is RF at 0.481 macro-F1, then XGB 0.419, KNN 0.366, CNN 0.153. The classical pipeline transfers better because derived features (HR in bpm, RMSSD, resp rate) are physically calibrated and device-agnostic; the CNN learns waveform-level patterns that are device-specific.
-5. **The 1D CNN is the only model that predicts `stress` at all.** F1[stress] is ≥0.15 for the CNN under conditions A, B, and C-full, vs ≤0.10 for every tree model. Class-weighted cross-entropy forces the network to attempt the rare class; tree models without explicit class weights default to ignoring it.
-6. **Transfer learning helps on some folds and hurts on others.** Mean numbers hide huge per-fold variance: `mta-5-17-pla-1` jumps +0.24 macro-F1 with CNN pretraining; `nvt-5-8-medi` drops −0.43. The per-fold table belongs in any presentation.
-7. **The `stress` class is the bottleneck.** Local data has only **10 stress windows** across all 7 recordings. F1[stress] stays ≤ 0.20 in every condition we ran. No model architecture can fix this — it's a data-collection problem.
+1. **The PDF feature set works.** XGBoost on just 8 PDF features lands macro-F1 **0.825** under LORO — better than the previous 30-feature pipeline at 30 s windows (0.751 with the same model). Cleaner physiology features beat more features at this data scale.
+2. **Adding temperature hurts macro-F1 for every model** (−0.018 to −0.063). The biggest collapse is on XGBoost's `stress` F1: 0.143 → 0.000. Temperature carries information about the majority class (baseline) but pushes the model away from the rare `stress` class. Accuracy slightly improves for XGBoost (+0.025) because the model trades stress recall for more correct baseline predictions.
+3. **XGBoost beats RandomForest beats KNN** under the new feature set (macro-F1 0.825 / 0.764 / 0.686). This reverses the ordering from the old 30-feature run, where RF was strongest. The 8 PDF features are too few for KNN's nearest-neighbour vote to be informative; trees thrive on them; gradient boosting wins outright.
+4. **The `stress` class is the bottleneck — even harder than before.** Only **4 stress windows** exist at the 60 s schema (was 10 at 30 s). Most LORO folds have zero stress in train and zero in test; F1[stress] is structurally near zero. Only XGBoost reaches 0.143 on it. **Collecting more `pla-*` recordings is the single highest-leverage next step.**
+5. **The per-recording HRV LF/HF computation is now spec-compliant.** Previously we ran Welch on 30 s segments; the PDF requires ≥ 1 min. Moving to 60 s windows fixes this, and the corresponding macro-F1 lift suggests the previous LF/HF values were noisy.
 
 ## Advice / next steps
 
-1. **Collect more `pla-*` (stress) recordings.** Highest-leverage single change. Going from 10 to ~100 stress windows would let the CNN actually learn the class, and would let us split stress into psychological vs physical sub-labels if useful later.
-2. **Download the remaining 12 WESAD subjects (S2–S6, S10–S17).** Only 3 of 15 are downloaded; full WESAD would 5× the pretraining set with no engineering cost. Likely the second-biggest lift on transfer performance.
-3. **Report per-fold results, not just the mean.** Variance between folds is larger than the average difference between conditions. A box-plot or per-recording bar chart conveys the picture more honestly than a single-number table.
-4. **Use RandomForest as the production baseline; treat the CNN as research.** RF is the top single model today, more interpretable than the CNN, trains in seconds, and degrades gracefully when WESAD is added. The CNN becomes competitive once stress windows pass ~100 and WESAD is fully ingested.
-5. **Try a CNN→XGBoost hybrid.** Train the CNN on WESAD, freeze it, extract the 256-dim bottleneck per window, feed those + the 24 classical features into XGBoost. Often the best small-N recipe — combines learned and engineered representations.
-6. **Flag the WESAD-stress = TSST caveat explicitly.** WESAD's stress is psychological (public speaking + arithmetic), local stress is physical (plank). They share elevated HR/suppressed HRV but the breathing patterns diverge. This is an upper bound on cross-dataset stress transfer until we either collect WESAD-style psychological-stress local recordings or accept the label-modality mismatch.
+1. **Adopt the PDF feature set as the canonical pipeline.** Use XGBoost-on-PDF-features as the production baseline (macro-F1 0.825). Drop temperature from the feature list — it never beats the PDF set on macro-F1 and erases the only working `stress` predictions.
+2. **Collect more `pla-*` (stress) recordings.** Highest-leverage single change: with only 4 stress windows total, no model can learn the class. Going from 4 to ~50 stress windows would dramatically improve every metric. If feasible, also collect math/cognitive stress recordings so the class has within-subject variety.
+3. **Report per-fold spread.** Aggregate macro-F1 hides the 0.46–1.00 fold-to-fold range. A per-recording bar chart in the team presentation will be more honest than a single mean.
+4. **Optional follow-up — WESAD re-evaluation under the PDF pipeline.** Once the local pipeline is finalized, re-run the WESAD pretraining condition with the same 8-feature schema to see whether transfer behaves differently when both sides use the same physiology features. (Out of scope for this run; user said local-only first.)
 
 ## Reproduce
 
 ```bash
-# classical, all three models (XGB + KNN + RF)
-uv run python -c "from src.transfer import run_three_way_all_models; run_three_way_all_models()"
+# Build features + run local-only LORO with the temperature ablation
+uv run python -m src.local_eval
 
-# classical, single model (defaults to xgboost; pass model='knn' or 'randomforest')
-uv run python -m src.transfer
-
-# 1D-CNN three-way
-uv run python scripts/run_dl_transfer.py
-
-# outputs land in outputs/transfer_results{,_knn,_randomforest,_all_models}.json
-# and outputs/dl_transfer_results.json
+# Output:
+#   outputs/local_loro_temp_ablation.json  (per-fold + summary, both configs)
 ```
