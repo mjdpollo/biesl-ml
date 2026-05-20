@@ -105,7 +105,31 @@ XGBoost's mean F1[stress] of 0.143 ≈ (1.0 + 0 + 5 × 0) / 7 — one of the two
 
 The number 0 on F1[stress] does **not** mean these models are broken on stress. It means there is not enough stress data to evaluate. With ~30-50 stress windows total the per-class F1 would become statistically meaningful.
 
-## Key findings
+## Results — Random 70 : 15 : 15 window split (5 seeds)
+
+Stratified random window split (train 70 % / val 15 % / test 15 %) averaged over seeds 0–4. Same 8 PDF features (with the optional 3 temperature features for the ablation), same models.
+
+### Mean ± std macro-F1
+
+| Model | PDF only | +temperature | Δ |
+|---|---|---|---|
+| KNN | 0.748 ± 0.120 | 0.710 ± 0.102 | −0.038 |
+| RandomForest | 0.817 ± 0.150 | 0.817 ± 0.150 | 0.000 |
+| **XGBoost** | **0.838 ± 0.131** | 0.823 ± 0.132 | −0.015 |
+| 1D-CNN | 0.799 ± 0.174 | 0.754 ± 0.156 | −0.045 |
+
+### LORO vs random-split — same models, different protocol
+
+| Model | LORO macro-F1 | Random-split macro-F1 | Δ |
+|---|---|---|---|
+| KNN | 0.686 | 0.748 | +0.06 |
+| RandomForest | 0.764 | 0.817 | +0.05 |
+| XGBoost | 0.825 | 0.838 | +0.01 |
+| **1D-CNN** | 0.349 | **0.799** | **+0.45** |
+
+> ⚠️ **The CNN's huge jump under random split is leakage, not learning.** Windows have 50 % overlap, so a test window's 30-s-shifted neighbour can sit in the train set. Classical models work on scalar HRV summaries that are insensitive to that overlap; the CNN reads raw waveforms and can latch onto the temporal proximity. The same effect explains the well-known Kaggle "99 % accuracy" notebook on WESAD. **Use LORO numbers for any honest cross-subject claim; use random-split numbers only for within-recording sanity checks.**
+
+
 
 1. **XGBoost on the 8 PDF features is the strongest model overall** at macro-F1 **0.825**, beating RandomForest (0.764), KNN (0.686), and the 1D-CNN with the same physiology inputs (0.349). The 60 s window finally satisfies the PDF's "≥ 1 min for Welch" requirement, and the cleaner per-spec HRV LF/HF features carry most of the signal.
 2. **Temperature flips the picture between classical and deep models.**
@@ -127,13 +151,21 @@ The number 0 on F1[stress] does **not** mean these models are broken on stress. 
 ## Reproduce
 
 ```bash
-# Classical (KNN / RF / XGBoost) LORO with the temperature ablation
+# Classical (KNN / RF / XGBoost) LORO
 uv run python -m src.local_eval
 
-# 1D-CNN LORO with the temperature ablation
+# Classical, 5-seed random 70:15:15 split
+uv run python -c "from src.local_eval import run_random_split_temp_ablation; run_random_split_temp_ablation()"
+
+# 1D-CNN LORO
 uv run python -m src.dl_train
 
-# Outputs:
-#   outputs/local_loro_temp_ablation.json     (KNN, RF, XGBoost)
-#   outputs/dl_local_loro_temp_ablation.json  (1D-CNN, both configs)
+# 1D-CNN, 5-seed random 70:15:15 split
+uv run python -c "from src.dl_train import run_random_split_temp_ablation; run_random_split_temp_ablation()"
+
+# Outputs land in outputs/:
+#   local_loro_temp_ablation.json
+#   local_randomsplit_temp_ablation.json
+#   dl_local_loro_temp_ablation.json
+#   dl_local_randomsplit_temp_ablation.json
 ```

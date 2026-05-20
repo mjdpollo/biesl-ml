@@ -167,6 +167,153 @@ def run_loro_local(df: pd.DataFrame, *, models: tuple[str, ...], label: str) -> 
     )
 
 
+def _stratified_three_way_split(
+    n: int, y: np.ndarray, *,
+    val_frac: float = 0.15, test_frac: float = 0.15, seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Stratified train/val/test split returning index arrays.
+
+    With only 4 stress-class windows the stratified `train_test_split` falls
+    back to non-stratified once any class has < 2 samples in a target split,
+    so we trap that and split unstratified in those cases.
+    """
+    from sklearn.model_selection import train_test_split
+    idx = np.arange(n)
+    rest_frac = val_frac + test_frac
+    try:
+        idx_tr, idx_rest = train_test_split(
+            idx, test_size=rest_frac, stratify=y, random_state=seed,
+        )
+        y_rest = y[idx_rest]
+        # ratio of val within (val+test)
+        val_within = val_frac / rest_frac
+        idx_va, idx_te = train_test_split(
+            idx_rest, test_size=1 - val_within, stratify=y_rest, random_state=seed,
+        )
+    except ValueError:
+        idx_tr, idx_rest = train_test_split(idx, test_size=rest_frac, random_state=seed)
+        idx_va, idx_te = train_test_split(idx_rest, test_size=test_frac / rest_frac,
+                                          random_state=seed)
+    return idx_tr, idx_va, idx_te
+
+
+def run_random_split_local(
+    df: pd.DataFrame, *, label: str,
+    models: tuple[str, ...] = ("knn", "randomforest", "xgboost"),
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+    val_frac: float = 0.15, test_frac: float = 0.15,
+) -> dict:
+    """7:1.5:1.5 stratified random window split, repeated over `seeds`.
+
+    Returns per-seed metrics and a mean±std summary per model.
+    """
+    le = LabelEncoder().fit(PHASE_CLASSES)
+    feat_cols = sorted(set(df.columns) - META_COLS)
+    print(f"\n[{label}] feature columns ({len(feat_cols)}): {feat_cols}")
+    print(f"[{label}] total windows: {len(df)}, "
+          f"label counts: {dict(Counter(df['activity']))}")
+    print(f"[{label}] split fractions: train={1 - val_frac - test_frac:.2f} / "
+          f"val={val_frac:.2f} / test={test_frac:.2f}, seeds={seeds}")
+
+    per_seed: dict[int, dict] = {}
+    y_full = df["activity"].to_numpy()
+    for seed in seeds:
+        idx_tr, idx_va, idx_te = _stratified_three_way_split(
+            len(df), y_full, val_frac=val_frac, test_frac=test_frac, seed=seed,
+        )
+        train_df = df.iloc[idx_tr]
+        val_df = df.iloc[idx_va]
+        test_df = df.iloc[idx_te]
+        seed_results: dict[str, dict] = {}
+        for m in models:
+            test_m = _fit_predict(train_df, test_df, feat_cols, le, model=m)
+            val_m = _fit_predict(train_df, val_df, feat_cols, le, model=m)
+            seed_results[m] = dict(val=val_m, test=test_m)
+        per_seed[seed] = dict(
+            counts=dict(
+                train=dict(Counter(train_df["activity"])),
+                val=dict(Counter(val_df["activity"])),
+                test=dict(Counter(test_df["activity"])),
+            ),
+            models=seed_results,
+        )
+        f1s = "  ".join(
+            f"{m}={seed_results[m]['test']['macro_f1']:.3f}" for m in models
+        )
+        print(f"  [seed {seed}]  test_n={len(test_df)} "
+              f"({dict(Counter(test_df['activity']))})  {f1s}")
+
+    # Aggregate per model.
+    summary: dict[str, dict] = {}
+    for m in models:
+        acc = [per_seed[s]["models"][m]["test"]["accuracy"] for s in seeds]
+        f1m = [per_seed[s]["models"][m]["test"]["macro_f1"] for s in seeds]
+        per_cls: dict[str, list[float]] = {c: [] for c in PHASE_CLASSES}
+        for s in seeds:
+            for c in PHASE_CLASSES:
+                per_cls[c].append(per_seed[s]["models"][m]["test"]["per_class_f1"][c])
+        summary[m] = dict(
+            mean_accuracy=float(np.mean(acc)),
+            std_accuracy=float(np.std(acc)),
+            mean_macro_f1=float(np.mean(f1m)),
+            std_macro_f1=float(np.std(f1m)),
+            per_class_f1_mean={c: float(np.mean(per_cls[c])) for c in PHASE_CLASSES},
+            per_class_f1_std={c: float(np.std(per_cls[c])) for c in PHASE_CLASSES},
+        )
+
+    return dict(
+        label=label,
+        feature_cols=feat_cols,
+        seeds=list(seeds),
+        per_seed=per_seed,
+        summary=summary,
+    )
+
+
+def run_random_split_temp_ablation(
+    *, out_dir: str = "outputs",
+    models: tuple[str, ...] = ("knn", "randomforest", "xgboost"),
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+) -> dict:
+    os.makedirs(out_dir, exist_ok=True)
+    print("=" * 78)
+    print(" Random 70:15:15 window split  —  classical models, with/without temperature")
+    print("=" * 78)
+
+    df_pdf = build_feature_table(include_temp=False)
+    df_temp = build_feature_table(include_temp=True)
+
+    results = dict(
+        pdf_only=run_random_split_local(
+            df_pdf, label="PDF features only", models=models, seeds=seeds,
+        ),
+        with_temp=run_random_split_local(
+            df_temp, label="PDF + temperature", models=models, seeds=seeds,
+        ),
+    )
+    path = os.path.join(out_dir, "local_randomsplit_temp_ablation.json")
+    with open(path, "w") as fh:
+        json.dump(results, fh, indent=2, default=_json_default)
+    print(f"\n  -> wrote {path}")
+
+    print("\n" + "=" * 78)
+    print(" Classical random-split LORO  —  mean ± std macro-F1 over seeds")
+    print("=" * 78)
+    header_cls = "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
+    print(f"{'config':<24s} {'model':<14s} {'acc':>10s} {'macroF1':>14s}  {header_cls}")
+    for key, lbl in (("pdf_only", "PDF only (8 feat)"),
+                     ("with_temp", "+temp (11 feat)")):
+        for m in models:
+            s = results[key]["summary"][m]
+            acc = f"{s['mean_accuracy']:.3f}±{s['std_accuracy']:.3f}"
+            f1m = f"{s['mean_macro_f1']:.3f}±{s['std_macro_f1']:.3f}"
+            per_cls = "  ".join(
+                f"{s['per_class_f1_mean'][c]:.3f}" for c in PHASE_CLASSES
+            )
+            print(f"{lbl:<24s} {m:<14s} {acc:>10s} {f1m:>14s}  {per_cls}")
+    return results
+
+
 def run_local_only_temp_ablation(
     *,
     out_dir: str = "outputs",

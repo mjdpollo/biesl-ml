@@ -306,6 +306,146 @@ def _aggregate(folds: list[dict]) -> dict:
     )
 
 
+def _stratified_three_way_split(
+    n: int, y: np.ndarray, *,
+    val_frac: float = 0.15, test_frac: float = 0.15, seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    from sklearn.model_selection import train_test_split
+    idx = np.arange(n)
+    rest_frac = val_frac + test_frac
+    try:
+        idx_tr, idx_rest = train_test_split(
+            idx, test_size=rest_frac, stratify=y, random_state=seed,
+        )
+        y_rest = y[idx_rest]
+        val_within = val_frac / rest_frac
+        idx_va, idx_te = train_test_split(
+            idx_rest, test_size=1 - val_within, stratify=y_rest, random_state=seed,
+        )
+    except ValueError:
+        idx_tr, idx_rest = train_test_split(idx, test_size=rest_frac, random_state=seed)
+        idx_va, idx_te = train_test_split(idx_rest, test_size=test_frac / rest_frac,
+                                          random_state=seed)
+    return idx_tr, idx_va, idx_te
+
+
+def run_random_split_dl(
+    *, include_temp: bool, label: str,
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+    val_frac: float = 0.15, test_frac: float = 0.15,
+    epochs: int = EPOCHS,
+) -> dict:
+    """7:1.5:1.5 stratified random window split, repeated over `seeds`, 1D-CNN."""
+    _set_seed(SEED)
+    print(f"\n[{label}] building raw windows ...")
+    ws = local_raw_windows(include_temp=include_temp)
+    X, y = stack_windows(ws)
+    in_channels = X.shape[1]
+    print(f"[{label}] X={X.shape}  labels={dict(Counter(y.tolist()))}")
+    print(f"[{label}] seeds={seeds}, splits=70/15/15")
+
+    per_seed: dict[int, dict] = {}
+    for seed in seeds:
+        idx_tr, idx_va, idx_te = _stratified_three_way_split(
+            len(X), y, val_frac=val_frac, test_frac=test_frac, seed=seed,
+        )
+        X_tr, y_tr = X[idx_tr], y[idx_tr]
+        X_va, y_va = X[idx_va], y[idx_va]
+        X_te, y_te = X[idx_te], y[idx_te]
+
+        t0 = time.time()
+        _set_seed(seed)
+        model, hist = train_one_fold(
+            X_tr, y_tr, X_va, y_va,
+            in_channels=in_channels, epochs=epochs,
+        )
+        y_pred = predict(model, X_te)
+        m_test = _metrics(_id_to_name(y_te), _id_to_name(y_pred))
+        y_va_pred = predict(model, X_va)
+        m_val = _metrics(_id_to_name(y_va), _id_to_name(y_va_pred))
+        dt = time.time() - t0
+
+        per_seed[seed] = dict(
+            counts=dict(
+                train=dict(Counter(y_tr.tolist())),
+                val=dict(Counter(y_va.tolist())),
+                test=dict(Counter(y_te.tolist())),
+            ),
+            val=m_val,
+            test=m_test,
+            stopped_at_epoch=int(hist["stopped_at_epoch"]),
+        )
+        print(f"  [seed {seed}]  test_n={len(X_te)} "
+              f"({{lbl_counts}})  macroF1={m_test['macro_f1']:.3f}  "
+              f"acc={m_test['accuracy']:.3f}  ({dt:.0f}s, stopped@{hist['stopped_at_epoch']})"
+              .replace("{lbl_counts}", str(dict(Counter(y_te.tolist())))))
+
+    # Aggregate.
+    acc = [per_seed[s]["test"]["accuracy"] for s in seeds]
+    f1m = [per_seed[s]["test"]["macro_f1"] for s in seeds]
+    per_cls: dict[str, list[float]] = {c: [] for c in PHASE_CLASSES}
+    for s in seeds:
+        for c in PHASE_CLASSES:
+            per_cls[c].append(per_seed[s]["test"]["per_class_f1"][c])
+    summary = dict(
+        mean_accuracy=float(np.mean(acc)),
+        std_accuracy=float(np.std(acc)),
+        mean_macro_f1=float(np.mean(f1m)),
+        std_macro_f1=float(np.std(f1m)),
+        per_class_f1_mean={c: float(np.mean(per_cls[c])) for c in PHASE_CLASSES},
+        per_class_f1_std={c: float(np.std(per_cls[c])) for c in PHASE_CLASSES},
+    )
+    return dict(
+        label=label,
+        in_channels=in_channels,
+        seeds=list(seeds),
+        per_seed=per_seed,
+        summary=summary,
+    )
+
+
+def run_random_split_temp_ablation(
+    *, out_dir: str = "outputs",
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+    epochs: int = EPOCHS,
+) -> dict:
+    os.makedirs(out_dir, exist_ok=True)
+    print("=" * 78)
+    print(" Random 70:15:15 window split  —  1D-CNN, with/without temperature")
+    print("=" * 78)
+    print(f"device: {DEVICE}, model params: {count_parameters(BiosignalCNN1D(in_channels=3))}")
+
+    results = dict(
+        pdf_only=run_random_split_dl(
+            include_temp=False, label="PDF channels", seeds=seeds, epochs=epochs,
+        ),
+        with_temp=run_random_split_dl(
+            include_temp=True, label="PDF channels + temperature", seeds=seeds,
+            epochs=epochs,
+        ),
+    )
+    path = os.path.join(out_dir, "dl_local_randomsplit_temp_ablation.json")
+    with open(path, "w") as fh:
+        json.dump(results, fh, indent=2, default=_json_default)
+    print(f"\n  -> wrote {path}")
+
+    print("\n" + "=" * 78)
+    print(" 1D-CNN random-split  —  mean ± std macro-F1 over seeds")
+    print("=" * 78)
+    header_cls = "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
+    print(f"{'config':<32s} {'acc':>10s} {'macroF1':>14s}  {header_cls}")
+    for key, lbl in (("pdf_only", "PDF channels (3 ch)"),
+                     ("with_temp", "+temp channel (4 ch)")):
+        s = results[key]["summary"]
+        acc = f"{s['mean_accuracy']:.3f}±{s['std_accuracy']:.3f}"
+        f1m = f"{s['mean_macro_f1']:.3f}±{s['std_macro_f1']:.3f}"
+        per_cls = "  ".join(
+            f"{s['per_class_f1_mean'][c]:.3f}" for c in PHASE_CLASSES
+        )
+        print(f"{lbl:<32s} {acc:>10s} {f1m:>14s}  {per_cls}")
+    return results
+
+
 def run_local_temp_ablation(*, out_dir: str = "outputs", epochs: int = EPOCHS) -> dict:
     os.makedirs(out_dir, exist_ok=True)
     print(f"device: {DEVICE}")
