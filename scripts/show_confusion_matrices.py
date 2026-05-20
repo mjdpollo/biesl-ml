@@ -50,35 +50,70 @@ def _sum_seed_confusions(seed_results: dict, *, dl: bool, model: str | None = No
     return total
 
 
+def _row_normalize(cm: np.ndarray) -> np.ndarray:
+    """Row-normalize a confusion matrix to percentages (true-class recall view).
+
+    Each row sums to 100 %. Rows with zero support stay all-zero.
+    """
+    cm = cm.astype(np.float64)
+    rs = cm.sum(axis=1, keepdims=True)
+    safe = np.where(rs == 0, 1.0, rs)
+    return cm / safe * 100.0
+
+
 def _print_markdown(name: str, cm: np.ndarray, n: int | None = None) -> None:
-    """Print a confusion matrix as a markdown table on stdout."""
+    """Print a row-normalized (percent) confusion matrix as a markdown table.
+
+    Each row sums to 100 % (row-wise recall view). A `support` column shows
+    the number of true samples per class — essential context when `stress`
+    has only 4 windows across the whole experiment.
+    """
+    cm_pct = _row_normalize(cm)
+    supports = cm.sum(axis=1)
     print(f"\n#### {name}" + (f"  *(n_test={n})*" if n is not None else ""))
-    head = "| true \\\\ pred | " + " | ".join(PHASE_CLASSES) + " |"
-    sep = "|---|" + "|".join("---" for _ in PHASE_CLASSES) + "|"
+    head = "| true \\\\ pred | " + " | ".join(PHASE_CLASSES) + " | support |"
+    sep = "|---|" + "|".join("---" for _ in PHASE_CLASSES) + "|---|"
     print(head)
     print(sep)
     for i, c in enumerate(PHASE_CLASSES):
-        row = " | ".join(str(int(v)) for v in cm[i])
-        print(f"| **{c}** | {row} |")
+        cells = " | ".join(f"{cm_pct[i, j]:.1f}%" for j in range(cm_pct.shape[1]))
+        print(f"| **{c}** | {cells} | {int(supports[i])} |")
 
 
 def _save_png(name: str, cm: np.ndarray, slug: str) -> None:
-    """Save a heatmap PNG of one confusion matrix."""
-    fig, ax = plt.subplots(figsize=(4.2, 3.6))
-    im = ax.imshow(cm, cmap="Blues", aspect="equal")
+    """Save a row-normalized (percent) heatmap of one confusion matrix.
+
+    Each row sums to 100 % (true-class recall view). The colour scale is
+    fixed at 0-100 % so heatmaps are directly comparable across (model ×
+    protocol × config) — a row that's "all blue" means perfect recall on
+    that class, regardless of how many samples it contained. True-class
+    support is annotated on the y-axis tick labels.
+    """
+    cm_pct = _row_normalize(cm)
+    supports = cm.sum(axis=1).astype(int)
+    fig, ax = plt.subplots(figsize=(4.4, 3.8))
+    im = ax.imshow(cm_pct, cmap="Blues", aspect="equal", vmin=0, vmax=100)
     ax.set_xticks(range(len(PHASE_CLASSES)))
     ax.set_yticks(range(len(PHASE_CLASSES)))
     ax.set_xticklabels(PHASE_CLASSES)
-    ax.set_yticklabels(PHASE_CLASSES)
+    # Annotate y-tick labels with the per-row support count so a viewer can
+    # tell whether a row is meaningful (105 baseline samples) or near-empty
+    # (4 stress samples).
+    ax.set_yticklabels(
+        [f"{c}\n(n={n})" for c, n in zip(PHASE_CLASSES, supports)]
+    )
     ax.set_xlabel("predicted")
     ax.set_ylabel("true")
     ax.set_title(name, fontsize=9)
-    vmax = cm.max() if cm.size else 1
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            ax.text(j, i, str(int(cm[i, j])), ha="center", va="center",
-                    color="white" if cm[i, j] > vmax / 2 else "black")
-    plt.colorbar(im, ax=ax, fraction=0.045)
+    for i in range(cm_pct.shape[0]):
+        for j in range(cm_pct.shape[1]):
+            v = cm_pct[i, j]
+            # white on dark cells (>= 50 %), black on light
+            color = "white" if v >= 50 else "black"
+            ax.text(j, i, f"{v:.1f}%", ha="center", va="center",
+                    color=color, fontsize=9)
+    cbar = plt.colorbar(im, ax=ax, fraction=0.045)
+    cbar.set_label("% of true class")
     plt.tight_layout()
     path = FIG_DIR / f"{slug}.png"
     plt.savefig(path, dpi=140)

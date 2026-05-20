@@ -114,7 +114,9 @@ Only two recordings (`pla-1`, `pla-2`) contain any `stress` windows, and they to
 
 ## 5. Confusion matrices
 
-Rows are true labels, columns are predictions. All matrices sum across folds (LORO: 7 folds, ~180 test predictions) or across seeds (random-split: 5 seeds × 27 = 135 test predictions). Diagonal cells = correct; off-diagonal cells = errors.
+Rows are true labels, columns are predictions. **Each row is row-normalized to 100 %** (true-class recall view): the cell at (`baseline`, `baseline`) is the percentage of actual baseline windows the model correctly predicted as baseline. Support counts (number of true samples in each row) are written under the y-axis tick labels in every PNG and in the [confusion-matrices.md](confusion-matrices.md) companion file — crucial when `stress` has only 4 samples total under LORO.
+
+All matrices sum across folds (LORO: 7 folds, ~180 test predictions) or across seeds (random-split: 5 seeds × 27 = 135 test predictions). Diagonal cells = correct; off-diagonal cells = errors.
 
 ### 5.1 LORO — Classical (PDF features only)
 
