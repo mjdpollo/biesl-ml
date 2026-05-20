@@ -148,6 +148,14 @@ Stratified random window split (train 70 % / val 15 % / test 15 %) averaged over
 4. **Report per-fold spread.** Aggregate macro-F1 hides the 0.46–1.00 fold-to-fold range. A per-recording bar chart in the team presentation will be more honest than a single mean.
 5. **Optional follow-up — WESAD re-evaluation under the PDF pipeline.** Once the local pipeline is finalized, re-run the WESAD pretraining condition with the same 8-feature schema. (Out of scope for this run; deferred per current direction.)
 
+## Confusion matrices
+
+All 16 confusion matrices (4 models × 2 protocols × 2 feature configs) are in [confusion-matrices.md](confusion-matrices.md), with per-matrix PNG heatmaps under [figures/confusion/](figures/confusion/). The key qualitative patterns:
+
+- **All three classical models almost never predict `stress`.** Under LORO, the `stress` prediction column is solid zeros except XGBoost catching 1 of 4 (PDF-only). With only 2–4 stress windows in training, the optimal tree split never fires on stress.
+- **Adding temperature shifts classical predictions away from `meditation` toward `baseline`** (XGBoost LORO: 11 → 5 false-baseline predictions on `meditation` rows). It also abolishes the one correct stress prediction.
+- **The 1D-CNN is the only model that ever calls `stress` correctly under LORO** (PDF+temp: 2 of 4 correct), but it pays in precision — 9 baseline windows are misclassified as `stress`. Class-weighted CE forces it to attempt the rare class.
+
 ## Reproduce
 
 ```bash
