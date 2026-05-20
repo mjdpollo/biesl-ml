@@ -110,6 +110,26 @@ Only two recordings (`pla-1`, `pla-2`) contain any `stress` windows, and they to
 | 1D-CNN, PDF | 0.648 | 0.292 | 0.000 |
 | 1D-CNN, +temp | 0.856 | 0.494 | **0.114** |
 
+### 4.5 Per-class recall (LORO, diagonal of confusion matrices)
+
+Recall = "of all true X windows, what % did the model correctly call X?". Reading the diagonal of each row-normalized confusion matrix:
+
+| Configuration | baseline | meditation | stress | (support) |
+|---|---|---|---|---|
+| KNN, PDF | 91.6 % | 75.6 % | **0.0 %** (0/4) | 131 / 45 / 4 |
+| KNN, +temp | 93.1 % | 60.0 % | 0.0 % | 131 / 45 / 4 |
+| RF, PDF | 95.4 % | 82.2 % | 0.0 % | 131 / 45 / 4 |
+| RF, +temp | 94.7 % | 77.8 % | 0.0 % | 131 / 45 / 4 |
+| **XGBoost, PDF** | **96.2 %** | 75.6 % | **25.0 %** (1/4) | 131 / 45 / 4 |
+| XGBoost, +temp | 96.2 % | **88.9 %** | 0.0 % | 131 / 45 / 4 |
+| 1D-CNN, PDF | 66.4 % | 57.8 % | 0.0 % | 125 / 45 / 4 |
+| **1D-CNN, +temp** | 84.0 % | 68.9 % | **50.0 %** (2/4) | 125 / 45 / 4 |
+
+Two observations to highlight in the presentation:
+
+- **The 1D-CNN with temperature is the only model that recalls `stress` better than chance** (50 %). Tree models default to never predicting the rare class.
+- **XGBoost with temperature is the best baseline+meditation recogniser** (96.2 % / 88.9 %), but its `stress` recall drops to 0 % — temperature lets it sharpen the majority classes at the cost of attempting stress at all.
+
 ---
 
 ## 5. Confusion matrices
@@ -162,8 +182,8 @@ All matrices sum across folds (LORO: 7 folds, ~180 test predictions) or across s
 2. **Temperature flips the picture between classical and deep models.**
    * For all three classical models, adding temperature **hurts** macro-F1 (KNN −0.063, RF −0.018, XGB −0.033). For XGBoost it also erases the only working stress predictions (F1[stress] 0.143 → 0.000).
    * For the 1D-CNN, adding temperature **lifts** macro-F1 by **+0.262** (0.349 → 0.611). The CNN can't easily extract HRV from raw ECG with only 174 windows, so it leans on the temperature drift as a cheap discriminator.
-3. **All three classical models almost never predict `stress`.** Look at the `stress` prediction column (rightmost) in any LORO confusion matrix — it is solid zeros except XGBoost-PDF-only catching 1 out of 4. With only 2–4 stress windows in training, no tree split fires on stress.
-4. **The 1D-CNN is the only model that calls `stress` correctly under LORO** (PDF+temp: 2 of 4 right) — but it also mislabels 9 baseline windows as `stress`. Class-weighted cross-entropy forces the network to attempt the rare class; the price is precision.
+3. **All three classical models almost never predict `stress`.** Look at the `stress` row of any LORO confusion matrix — recall is 0 % except XGBoost-PDF-only at 25 % (1/4). With only 2–4 stress training windows, no tree split fires on stress.
+4. **The 1D-CNN with temperature is the only model that recalls `stress` above chance** under LORO at **50 %** (2/4 correct) — but it also mislabels 7.2 % of baseline windows as `stress` (9 of 125). Class-weighted cross-entropy forces the network to attempt the rare class; the price is precision.
 5. **The `stress` class is a data bottleneck, not a model bottleneck.** Only 4 stress windows exist across the entire dataset, all from two `pla-*` recordings. Under LORO, 5 of 7 folds have zero stress in the test set, so F1[stress] is structurally 0 for those folds. The single most impactful next step is collecting more `pla-*` recordings.
 6. **Random-split numbers are misleading for the CNN.** The +0.45 LORO→random-split delta is overlap leakage (50 % window overlap → adjacent windows split between train and test). For a fair cross-recording claim, only LORO numbers should be quoted.
 
