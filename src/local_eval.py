@@ -270,86 +270,73 @@ def run_random_split_local(
     )
 
 
-def run_random_split_temp_ablation(
+def run_random_split_eval(
     *, out_dir: str = "outputs",
     models: tuple[str, ...] = ("knn", "randomforest", "xgboost"),
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
 ) -> dict:
+    """7:1.5:1.5 stratified random window split, PDF features only."""
     os.makedirs(out_dir, exist_ok=True)
     print("=" * 78)
-    print(" Random 70:15:15 window split  —  classical models, with/without temperature")
+    print(" Random 70:15:15 window split  —  classical models, PDF features only")
     print("=" * 78)
 
     df_pdf = build_feature_table(include_temp=False)
-    df_temp = build_feature_table(include_temp=True)
-
-    results = dict(
-        pdf_only=run_random_split_local(
-            df_pdf, label="PDF features only", models=models, seeds=seeds,
-        ),
-        with_temp=run_random_split_local(
-            df_temp, label="PDF + temperature", models=models, seeds=seeds,
-        ),
+    result = run_random_split_local(
+        df_pdf, label="PDF features only", models=models, seeds=seeds,
     )
-    path = os.path.join(out_dir, "local_randomsplit_temp_ablation.json")
+
+    path = os.path.join(out_dir, "local_randomsplit.json")
     with open(path, "w") as fh:
-        json.dump(results, fh, indent=2, default=_json_default)
+        json.dump(result, fh, indent=2, default=_json_default)
     print(f"\n  -> wrote {path}")
 
     print("\n" + "=" * 78)
-    print(" Classical random-split LORO  —  mean ± std macro-F1 over seeds")
+    print(" Classical random-split  —  mean ± std macro-F1 over seeds")
     print("=" * 78)
     header_cls = "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
-    print(f"{'config':<24s} {'model':<14s} {'acc':>10s} {'macroF1':>14s}  {header_cls}")
-    for key, lbl in (("pdf_only", "PDF only (8 feat)"),
-                     ("with_temp", "+temp (11 feat)")):
-        for m in models:
-            s = results[key]["summary"][m]
-            acc = f"{s['mean_accuracy']:.3f}±{s['std_accuracy']:.3f}"
-            f1m = f"{s['mean_macro_f1']:.3f}±{s['std_macro_f1']:.3f}"
-            per_cls = "  ".join(
-                f"{s['per_class_f1_mean'][c]:.3f}" for c in PHASE_CLASSES
-            )
-            print(f"{lbl:<24s} {m:<14s} {acc:>10s} {f1m:>14s}  {per_cls}")
-    return results
+    print(f"{'model':<14s} {'acc':>10s} {'macroF1':>14s}  {header_cls}")
+    for m in models:
+        s = result["summary"][m]
+        acc = f"{s['mean_accuracy']:.3f}±{s['std_accuracy']:.3f}"
+        f1m = f"{s['mean_macro_f1']:.3f}±{s['std_macro_f1']:.3f}"
+        per_cls = "  ".join(f"{s['per_class_f1_mean'][c]:.3f}" for c in PHASE_CLASSES)
+        print(f"{m:<14s} {acc:>10s} {f1m:>14s}  {per_cls}")
+    return result
 
 
-def run_local_only_temp_ablation(
+def run_local_loro_eval(
     *,
     out_dir: str = "outputs",
     models: tuple[str, ...] = ("knn", "randomforest", "xgboost"),
 ) -> dict:
+    """LORO across local recordings, PDF features only, KNN / RF / XGBoost."""
     os.makedirs(out_dir, exist_ok=True)
-
     print("=" * 78)
-    print(" Building feature tables (PDF features + temperature ablation)")
+    print(" Building PDF-feature table (no temperature)")
     print("=" * 78)
-
     t0 = time.time()
     df_pdf = build_feature_table(include_temp=False)
     print(f"  PDF-only table built in {time.time() - t0:.1f}s, "
           f"{df_pdf.shape[0]} windows × {df_pdf.shape[1]} cols")
 
-    t0 = time.time()
-    df_with_temp = build_feature_table(include_temp=True)
-    print(f"  With-temp table built in {time.time() - t0:.1f}s, "
-          f"{df_with_temp.shape[0]} windows × {df_with_temp.shape[1]} cols")
-
-    # Sanity: same row count.
-    assert len(df_pdf) == len(df_with_temp), "row counts diverged"
-
-    results = dict(
-        pdf_only=run_loro_local(df_pdf, models=models, label="PDF features only"),
-        with_temp=run_loro_local(df_with_temp, models=models, label="PDF + temperature"),
-    )
-
-    path = os.path.join(out_dir, "local_loro_temp_ablation.json")
+    result = run_loro_local(df_pdf, models=models, label="PDF features only")
+    path = os.path.join(out_dir, "local_loro.json")
     with open(path, "w") as fh:
-        json.dump(results, fh, indent=2, default=_json_default)
+        json.dump(result, fh, indent=2, default=_json_default)
     print(f"\n  -> wrote {path}")
 
-    _print_comparison(results, models)
-    return results
+    print("\n" + "=" * 78)
+    print(" Classical LORO  —  PDF features only")
+    print("=" * 78)
+    header_cls = "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
+    print(f"{'model':<14s} {'acc':>6s} {'macroF1':>9s}  {header_cls}")
+    for m in models:
+        s = result["summary"][m]
+        per_cls = "  ".join(f"{s['per_class_f1_mean'][c]:6.3f}" for c in PHASE_CLASSES)
+        print(f"{m:<14s} {s['mean_accuracy']:>6.3f} "
+              f"{s['mean_macro_f1']:>9.3f}  {per_cls}")
+    return result
 
 
 def _json_default(o):
@@ -360,22 +347,6 @@ def _json_default(o):
     if isinstance(o, (np.ndarray,)):
         return o.tolist()
     return str(o)
-
-
-def _print_comparison(results: dict, models: tuple[str, ...]) -> None:
-    print("\n" + "=" * 78)
-    print(" Local-only LORO  —  with temperature vs without")
-    print("=" * 78)
-    header_cls = "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
-    print(f"{'config':<22s} {'model':<14s} {'acc':>6s} {'macroF1':>9s}  {header_cls}")
-    for key, label in (("pdf_only", "PDF only (8 feat)"), ("with_temp", "+temp (11 feat)")):
-        for m in models:
-            s = results[key]["summary"][m]
-            per_cls = "  ".join(f"{s['per_class_f1_mean'][c]:6.3f}" for c in PHASE_CLASSES)
-            print(
-                f"{label:<22s} {m:<14s} {s['mean_accuracy']:>6.3f} "
-                f"{s['mean_macro_f1']:>9.3f}  {per_cls}"
-            )
 
     print("\nDelta (with_temp − pdf_only):")
     print(f"{'model':<14s} {'Δ acc':>8s} {'Δ macroF1':>11s}  Δ per-class F1")
@@ -392,7 +363,8 @@ def _print_comparison(results: dict, models: tuple[str, ...]) -> None:
 
 
 def main() -> None:
-    run_local_only_temp_ablation()
+    run_local_loro_eval()
+    run_random_split_eval()
 
 
 if __name__ == "__main__":

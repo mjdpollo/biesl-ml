@@ -34,7 +34,7 @@ class BiosignalCNN1D(nn.Module):
     Input shape: (batch, 3, 7500). Output: (batch, n_classes) logits.
     """
 
-    def __init__(self, in_channels: int = 3, n_classes: int = 3, dropout: float = 0.4):
+    def __init__(self, in_channels: int = 3, n_classes: int = 4, dropout: float = 0.4):
         super().__init__()
         self.feature_extractor = nn.Sequential(
             _ConvBlock(in_channels, 64, kernel=11, pool=2),    # (B,  64, 3750)

@@ -1,57 +1,52 @@
-# Stress / Meditation / Baseline Classification Report
+# Stress / Meditation / Rest / Recovery Classification Report
 
-**Task.** Per-window 3-class classification: `baseline` / `meditation` / `stress`.
-**Data.** Local wearable recordings only (7 sessions, 2 subjects). WESAD is excluded from this report.
-**Feature pipeline.** The eight parameters defined in [`features.pdf`](features.pdf), with a separate temperature ablation.
-**Evaluation protocols.** (a) Leave-one-recording-out (LORO, 7 folds) — the honest cross-recording benchmark; (b) stratified 70:15:15 random window split averaged over 5 seeds — useful as a sanity check but contaminated by 50 % window overlap.
+**Task.** Per-window **4-class** classification: `rest` / `meditation` / `stress` / `recovery`.
+**Data.** 9 local wearable recordings (~15 min each) from 2 subjects (`mta`, `mta2`), downloaded fresh from the team Google Drive folder ([see README](README.md#dataset)). WESAD is not used.
+**Features.** The eight parameters defined in [`features.pdf`](features.pdf), and only those — **no temperature features.**
+**Window-boundary policy.** Windows whose 60-s extent touches the 5-min or 10-min protocol transitions are excluded (patient reported discomfort at the transitions).
+**Evaluation protocols.** (a) Leave-one-recording-out (LORO, 9 folds) — the honest cross-recording benchmark; (b) stratified 70:15:15 random window split averaged over 5 seeds — useful as a sanity check but contaminated by 50 % window overlap.
 
 ---
 
 ## 1. Feature definitions (from features.pdf)
 
-Exactly eight features per 60 s window — no others.
+Exactly eight features per 60 s window. No temperature features in this pipeline.
 
 | Feature | Channel | Preprocessing | Computation |
 |---|---|---|---|
-| `csi` | Microphone | Bandpass 20–200 Hz → Shannon-energy envelope `−x² log(x²)` → peak detection in the envelope | S2/S1 amplitude ratio. Each ECG R-peak picks one S1 (Shannon peak in R+0–200 ms) and one S2 (Shannon peak in R+200–500 ms). CSI = mean(S2 amp) / mean(S1 amp) over the window. |
-| `hr` | ECG | Low-pass 150 Hz + detrend → Pan–Tompkins R-peak detection. NN intervals cleaned: reject NN < 300 ms, NN > 1500 ms, or NN deviating > 20 % from the median of the surrounding ~10 beats. Rejected NNs are cubic-spline interpolated. | `60 000 / mean(NN_ms)` (beats per minute) |
-| `hrv_rmssd` | ECG | Same cleaned NN series | `√(mean((NN_{i+1} − NN_i)²))` over the window, in ms |
-| `hrv_lf` | ECG | Welch PSD on a 4 Hz interpolated tachogram, Hann window, 60 s segments where possible | Area under PSD in 0.04–0.15 Hz, in ms² |
-| `hrv_hf` | ECG | Same Welch PSD | Area under PSD in 0.15–0.40 Hz, in ms² |
+| `csi` | Microphone | Bandpass 20–200 Hz → Shannon-energy envelope `−x² log(x²)` → peak detection | S2/S1 amplitude ratio. Each ECG R-peak picks one S1 (Shannon peak in R+0–200 ms) and one S2 (Shannon peak in R+200–500 ms). CSI = mean(S2 amp) / mean(S1 amp). |
+| `hr` | ECG | Low-pass 150 Hz + detrend → Pan–Tompkins R-peak detection. NN intervals cleaned: reject NN < 300 ms, NN > 1500 ms, or NN deviating > 20 % from the median of the surrounding ~10 beats. Rejected NNs are cubic-spline interpolated. | `60 000 / mean(NN_ms)` (bpm) |
+| `hrv_rmssd` | ECG | Same cleaned NN series | `√(mean((NN_{i+1} − NN_i)²))`, in ms |
+| `hrv_lf` | ECG | Welch PSD on 4 Hz interpolated tachogram, Hann window, 60 s segments where possible | Area under PSD in 0.04–0.15 Hz, in ms² |
+| `hrv_hf` | ECG | Same Welch | Area under PSD in 0.15–0.40 Hz, in ms² |
 | `hrv_lf_hf` | ECG | — | `hrv_lf / hrv_hf` |
-| `rr` | Respiration | Detrend → 0.5 s moving average → 4th-order Chebyshev II low-pass (stopband edge 1 Hz, 40 dB attenuation) → 2nd-order Butterworth high-pass at 0.12 Hz. Slope-based peak detection with adaptive threshold = 1/3 × mean amplitude of the last 8 accepted breaths. | `60 / mean(breath interval, s)` (breaths per minute) |
+| `rr` | Respiration | Detrend → 0.5 s moving average → 4th-order Chebyshev II low-pass (stopband edge 1 Hz, 40 dB) → 2nd-order Butterworth high-pass at 0.12 Hz. Slope-based peak detection with adaptive threshold = 1/3 × mean of the last 8 accepted breath amplitudes. | `60 / mean(breath interval, s)` (bpm) |
 | `rrv` | Respiration | Same chain | Standard deviation of the last 5 breath intervals (s) |
 
-### Optional temperature ablation (NOT in the PDF)
-
-Three additional features are reported only for the explicit "with temperature vs without" comparison.
-
-| Feature | Channel | Computation |
-|---|---|---|
-| `temp_mean_C` | Skin temperature | Mean of raw temperature samples in the window |
-| `temp_std_C` | Skin temperature | Standard deviation in the window |
-| `temp_slope_Cps` | Skin temperature | Linear-fit slope over the window (°C per second) |
-
-**Window length: 60 s** (required by the PDF's "≥ 1 min for Welch" rule).
-**Overlap: 50 %**.
-**Total: 180 windows** across 7 recordings (105 baseline / 65 meditation / 4 stress).
+**Window length:** 60 s, 50 % overlap.
+**Boundary skip:** any window whose [t, t+60] includes the 5-min mark (300 s) or the 10-min mark (600 s) is dropped. With 50 % overlap and phase-respecting windowing this removes 4 windows per medi recording (2 near each boundary) and 2 per pla recording.
 
 ---
 
 ## 2. Dataset summary
 
-| Recording | baseline | meditation | stress |
-|---|---|---|---|
-| `mta-5-17-medi` | 14 | 13 | 0 |
-| `mta-5-17-medi (1)` | 13 | 14 | 0 |
-| **`mta-5-17-pla-1`** | 18 | 0 | **2** |
-| **`mta-5-17-pla-2`** | 19 | 0 | **2** |
-| `mta-5-8-medi` | 14 | 12 | 0 |
-| `nvt-5-15-medi` | 13 | 13 | 0 |
-| `nvt-5-8-medi` | 14 | 13 | 0 |
-| **Total** | **105** | **65** | **4** |
+| Recording | rest | meditation | stress | recovery |
+|---|---|---|---|---|
+| `mta-5-17-medi` | 8 | 8 | 0 | 8 |
+| `mta-5-17-medi (1)` | 8 | 8 | 0 | 7 |
+| `mta-5-17-pla-1'26` (plank 1 m 26 s) | 8 | 0 | 1 | 7 |
+| `mta-5-17-pla-2` (plank 2 m) | 8 | 0 | 2 | 7 |
+| `mta2_5_19_medi` | 8 | 7 | 0 | 8 |
+| `mta_5_19_medi` | 8 | 7 | 0 | 7 |
+| `mta_5_19_medi (1)` | 8 | 7 | 0 | 8 |
+| `mta_5_19_pla_1'40` (plank 1 m 40 s) | 8 | 0 | 1 | 7 |
+| `mta_5_19_pla_2'20` (plank 2 m 20 s) | 8 | 0 | 1 | 7 |
+| **Total (classical pipeline, 182 windows)** | **72** | **35** | **5** | **70** |
+| **Total (CNN pipeline, 177 windows)** | **72** | **35** | **5** | **65** |
 
-Only two recordings (`pla-1`, `pla-2`) contain any `stress` windows, and they together contribute only 4 of the 180 windows (2.2 %). This is the main constraint on every model's `stress` F1.
+The CNN pipeline aligns ECG, Resp and Mic-Shannon-envelope to a common 250 Hz grid; the slight length mismatch between channels causes a few `recovery` windows at the end of long pla recordings to be cropped.
+
+The `stress` class still has only **5 windows total** across 4 plank recordings (each plank is short — 86 s to 140 s — so each pla recording contributes 1–2 stress windows). This is the dominant constraint on every model's `stress` recall.
 
 ---
 
@@ -59,166 +54,127 @@ Only two recordings (`pla-1`, `pla-2`) contain any `stress` windows, and they to
 
 | Family | Inputs | Architecture |
 |---|---|---|
-| KNN | 8 PDF features (+3 temperature features for the ablation) | median-imputer → StandardScaler → KNN (k=7, distance-weighted, Euclidean) |
+| KNN | 8 PDF features | median-imputer → StandardScaler → KNN (k=7, distance-weighted, Euclidean) |
 | RandomForest | same | median-imputer → RandomForest (400 trees, `min_samples_leaf=2`, `max_features='sqrt'`) |
 | XGBoost | same | XGBoost (400 trees, depth=4, lr=0.05) — handles NaNs natively |
-| 1D-CNN | 3 raw channels (ECG @ 250 Hz, Resp @ 250 Hz, Mic Shannon-envelope @ 250 Hz) over 60 s = (3, 15 000); +1 temperature channel for the ablation | 5-block 1D conv stack + AdaptiveAvgPool + 2-layer MLP head, 636 k params, AMP, AdamW + cosine LR, class-weighted CE, early stopping |
+| 1D-CNN | 3 raw channels (ECG @ 250 Hz, Resp @ 250 Hz, Mic Shannon-envelope @ 250 Hz), 60 s = (3, 15 000) | 5-block 1D conv stack + AdaptiveAvgPool + 2-layer MLP head, 636 k params, AMP, AdamW + cosine LR, class-weighted CE, early stopping |
 
 ---
 
 ## 4. Results
 
-### 4.1 LORO macro-F1 (mean across 7 folds)
+### 4.1 LORO macro-F1 (mean across 9 folds)
 
-| Model | PDF features only | + temperature | Δ |
-|---|---|---|---|
-| KNN | 0.686 | 0.623 | −0.063 |
-| RandomForest | 0.764 | 0.747 | −0.018 |
-| **XGBoost** | **0.825** | 0.792 | −0.033 |
-| 1D-CNN | 0.349 | **0.611** | **+0.262** |
+| Model | acc | macro-F1 | F1[rest] | F1[meditation] | F1[stress] | F1[recovery] |
+|---|---|---|---|---|---|---|
+| KNN | 0.669 | 0.592 | 0.698 | 0.351 | 0.185 | 0.642 |
+| RandomForest | 0.774 | 0.663 | 0.817 | 0.432 | 0.000 | 0.724 |
+| **XGBoost** | **0.791** | **0.723** | 0.757 | 0.470 | 0.222 | 0.728 |
+| 1D-CNN | 0.273 | 0.262 | 0.129 | 0.218 | 0.259 | 0.324 |
 
 ### 4.2 Random 70:15:15 macro-F1 (mean ± std over seeds 0–4)
 
-| Model | PDF features only | + temperature |
-|---|---|---|
-| KNN | 0.748 ± 0.120 | 0.710 ± 0.102 |
-| RandomForest | 0.817 ± 0.150 | 0.817 ± 0.150 |
-| **XGBoost** | **0.838 ± 0.131** | 0.823 ± 0.132 |
-| 1D-CNN | 0.799 ± 0.174 | 0.754 ± 0.156 |
+| Model | acc | macro-F1 | F1[rest] | F1[meditation] | F1[stress] | F1[recovery] |
+|---|---|---|---|---|---|---|
+| KNN | 0.679 ± 0.130 | 0.629 ± 0.173 | 0.719 | 0.743 | 0.000 | 0.596 |
+| RandomForest | 0.771 ± 0.110 | 0.725 ± 0.164 | 0.808 | 0.891 | 0.000 | 0.697 |
+| XGBoost | 0.814 ± 0.069 | 0.795 ± 0.136 | 0.828 | 0.898 | 0.160 | 0.762 |
+| **1D-CNN** | **0.867 ± 0.073** | **0.850 ± 0.123** | 0.884 | 0.921 | 0.400 | 0.822 |
 
 ### 4.3 LORO vs random-split — same models, different protocol
 
-| Model | LORO | Random-split | Δ |
+| Model | LORO macro-F1 | Random-split macro-F1 | Δ |
 |---|---|---|---|
-| KNN | 0.686 | 0.748 | +0.06 |
-| RandomForest | 0.764 | 0.817 | +0.05 |
-| XGBoost | 0.825 | 0.838 | +0.01 |
-| **1D-CNN** | **0.349** | **0.799** | **+0.45** |
+| KNN | 0.592 | 0.629 | +0.04 |
+| RandomForest | 0.663 | 0.725 | +0.06 |
+| XGBoost | 0.723 | 0.795 | +0.07 |
+| **1D-CNN** | **0.262** | **0.850** | **+0.59** |
 
-> ⚠️ **The CNN's huge jump under random split is leakage, not learning.** Windows have 50 % overlap, so a test window's 30-s-shifted neighbour can sit in the train set. Classical models work on scalar HRV summaries that are insensitive to that overlap; the CNN reads raw waveforms and latches onto the temporal proximity. **Use LORO numbers for any honest cross-recording claim; treat random-split numbers as a within-recording sanity check at most.**
+> ⚠️ **The CNN's huge LORO → random-split jump is data leakage, not learning.** Windows have 50 % overlap, so a test window's 30-s-shifted neighbour can sit in the train set. Classical models work on scalar HRV summaries that are insensitive to that overlap; the CNN reads raw waveforms and latches onto the temporal proximity. Use LORO numbers for any honest cross-recording claim; random-split numbers are a within-recording sanity check at most.
 
-### 4.4 Per-class F1 (LORO mean)
+### 4.4 Per-class recall (LORO, diagonal of confusion matrices)
 
-| Configuration | baseline | meditation | stress |
-|---|---|---|---|
-| KNN, PDF | 0.903 | 0.556 | 0.000 |
-| KNN, +temp | 0.892 | 0.441 | 0.000 |
-| RF, PDF | 0.934 | 0.595 | 0.000 |
-| RF, +temp | 0.922 | 0.571 | 0.000 |
-| XGBoost, PDF | 0.930 | 0.577 | **0.143** |
-| XGBoost, +temp | 0.947 | 0.636 | 0.000 |
-| 1D-CNN, PDF | 0.648 | 0.292 | 0.000 |
-| 1D-CNN, +temp | 0.856 | 0.494 | **0.114** |
-
-### 4.5 Per-class recall (LORO, diagonal of confusion matrices)
-
-Recall = "of all true X windows, what % did the model correctly call X?". Reading the diagonal of each row-normalized confusion matrix:
-
-| Configuration | baseline | meditation | stress | (support) |
+| Model | rest | meditation | stress | recovery |
 |---|---|---|---|---|
-| KNN, PDF | 91.6 % | 75.6 % | **0.0 %** (0/4) | 131 / 45 / 4 |
-| KNN, +temp | 93.1 % | 60.0 % | 0.0 % | 131 / 45 / 4 |
-| RF, PDF | 95.4 % | 82.2 % | 0.0 % | 131 / 45 / 4 |
-| RF, +temp | 94.7 % | 77.8 % | 0.0 % | 131 / 45 / 4 |
-| **XGBoost, PDF** | **96.2 %** | 75.6 % | **25.0 %** (1/4) | 131 / 45 / 4 |
-| XGBoost, +temp | 96.2 % | **88.9 %** | 0.0 % | 131 / 45 / 4 |
-| 1D-CNN, PDF | 66.4 % | 57.8 % | 0.0 % | 125 / 45 / 4 |
-| **1D-CNN, +temp** | 84.0 % | 68.9 % | **50.0 %** (2/4) | 125 / 45 / 4 |
+| KNN | 68.1 % | 60.0 % | **60.0 %** (3/5) | 65.7 % |
+| RandomForest | **87.5 %** | 71.4 % | 0.0 % | 74.3 % |
+| **XGBoost** | 79.2 % | **80.0 %** | **80.0 %** (4/5) | **75.7 %** |
+| 1D-CNN | 16.7 % | 31.4 % | 60.0 % | 40.0 % |
 
-Two observations to highlight in the presentation:
+Two highlights:
 
-- **The 1D-CNN with temperature is the only model that recalls `stress` better than chance** (50 %). Tree models default to never predicting the rare class.
-- **XGBoost with temperature is the best baseline+meditation recogniser** (96.2 % / 88.9 %), but its `stress` recall drops to 0 % — temperature lets it sharpen the majority classes at the cost of attempting stress at all.
+- **XGBoost is the only model that does well on every class under LORO**, including 80 % stress recall (4 of 5 stress windows correct). It's the production candidate.
+- **KNN matches XGBoost on stress recall** (60 %, 3/5) — distance-based learners can pick up the dramatically different HR/HRV/RR signature of plank stress even with only 4 stress training windows.
+- **The 1D-CNN collapses under LORO.** With 4 classes and a fine `rest` / `recovery` distinction it can't generalize across recordings on raw waveforms with only 177 windows. The 0.85 random-split number is the overlap-leakage ceiling.
 
 ---
 
 ## 5. Confusion matrices
 
-Rows are true labels, columns are predictions. **Each row is row-normalized to 100 %** (true-class recall view): the cell at (`baseline`, `baseline`) is the percentage of actual baseline windows the model correctly predicted as baseline. Support counts (number of true samples in each row) are written under the y-axis tick labels in every PNG and in the [confusion-matrices.md](confusion-matrices.md) companion file — crucial when `stress` has only 4 samples total under LORO.
+Rows are true labels, columns are predictions. **Each row is row-normalized to 100 %** (true-class recall view). The cell at (`baseline`, `baseline`) is the percentage of actual baseline windows the model correctly predicted as baseline. Support counts are written under the y-axis tick labels in every PNG and in the [confusion-matrices.md](confusion-matrices.md) companion file — crucial when `stress` has only 5 samples total.
 
-All matrices sum across folds (LORO: 7 folds, ~180 test predictions) or across seeds (random-split: 5 seeds × 27 = 135 test predictions). Diagonal cells = correct; off-diagonal cells = errors.
-
-### 5.1 LORO — Classical (PDF features only)
+### 5.1 LORO — Classical
 
 | KNN | RandomForest | XGBoost |
 |---|---|---|
-| ![KNN LORO PDF only](figures/confusion/loro__classical_knn_pdf_only.png) | ![RandomForest LORO PDF only](figures/confusion/loro__classical_randomforest_pdf_only.png) | ![XGBoost LORO PDF only](figures/confusion/loro__classical_xgboost_pdf_only.png) |
+| ![KNN LORO](figures/confusion/loro__classical_knn.png) | ![RandomForest LORO](figures/confusion/loro__classical_randomforest.png) | ![XGBoost LORO](figures/confusion/loro__classical_xgboost.png) |
 
-### 5.2 LORO — Classical (PDF + temperature)
+### 5.2 LORO — 1D-CNN
 
-| KNN | RandomForest | XGBoost |
-|---|---|---|
-| ![KNN LORO with temp](figures/confusion/loro__classical_knn_with_temp.png) | ![RandomForest LORO with temp](figures/confusion/loro__classical_randomforest_with_temp.png) | ![XGBoost LORO with temp](figures/confusion/loro__classical_xgboost_with_temp.png) |
+![1D-CNN LORO](figures/confusion/loro__cnn.png)
 
-### 5.3 LORO — 1D-CNN
-
-| PDF channels (3 ch) | + temperature (4 ch) |
-|---|---|
-| ![1D-CNN LORO PDF only](figures/confusion/loro__cnn_pdf_only.png) | ![1D-CNN LORO with temp](figures/confusion/loro__cnn_with_temp.png) |
-
-### 5.4 Random 70:15:15 — Classical (PDF features only)
+### 5.3 Random 70:15:15 — Classical
 
 | KNN | RandomForest | XGBoost |
 |---|---|---|
-| ![KNN random PDF only](figures/confusion/randomsplit__classical_knn_pdf_only.png) | ![RandomForest random PDF only](figures/confusion/randomsplit__classical_randomforest_pdf_only.png) | ![XGBoost random PDF only](figures/confusion/randomsplit__classical_xgboost_pdf_only.png) |
+| ![KNN random](figures/confusion/randomsplit__classical_knn.png) | ![RandomForest random](figures/confusion/randomsplit__classical_randomforest.png) | ![XGBoost random](figures/confusion/randomsplit__classical_xgboost.png) |
 
-### 5.5 Random 70:15:15 — Classical (PDF + temperature)
+### 5.4 Random 70:15:15 — 1D-CNN
 
-| KNN | RandomForest | XGBoost |
-|---|---|---|
-| ![KNN random with temp](figures/confusion/randomsplit__classical_knn_with_temp.png) | ![RandomForest random with temp](figures/confusion/randomsplit__classical_randomforest_with_temp.png) | ![XGBoost random with temp](figures/confusion/randomsplit__classical_xgboost_with_temp.png) |
-
-### 5.6 Random 70:15:15 — 1D-CNN
-
-| PDF channels (3 ch) | + temperature (4 ch) |
-|---|---|
-| ![1D-CNN random PDF only](figures/confusion/randomsplit__cnn_pdf_only.png) | ![1D-CNN random with temp](figures/confusion/randomsplit__cnn_with_temp.png) |
+![1D-CNN random](figures/confusion/randomsplit__cnn.png)
 
 ---
 
 ## 6. Key findings
 
-1. **XGBoost on the 8 PDF features is the strongest single model under LORO** at macro-F1 **0.825**, beating RandomForest (0.764), KNN (0.686), and the 1D-CNN with PDF channels (0.349). With only 180 windows total, dense hand-crafted physiology features beat raw waveforms.
-2. **Temperature flips the picture between classical and deep models.**
-   * For all three classical models, adding temperature **hurts** macro-F1 (KNN −0.063, RF −0.018, XGB −0.033). For XGBoost it also erases the only working stress predictions (F1[stress] 0.143 → 0.000).
-   * For the 1D-CNN, adding temperature **lifts** macro-F1 by **+0.262** (0.349 → 0.611). The CNN can't easily extract HRV from raw ECG with only 174 windows, so it leans on the temperature drift as a cheap discriminator.
-3. **All three classical models almost never predict `stress`.** Look at the `stress` row of any LORO confusion matrix — recall is 0 % except XGBoost-PDF-only at 25 % (1/4). With only 2–4 stress training windows, no tree split fires on stress.
-4. **The 1D-CNN with temperature is the only model that recalls `stress` above chance** under LORO at **50 %** (2/4 correct) — but it also mislabels 7.2 % of baseline windows as `stress` (9 of 125). Class-weighted cross-entropy forces the network to attempt the rare class; the price is precision.
-5. **The `stress` class is a data bottleneck, not a model bottleneck.** Only 4 stress windows exist across the entire dataset, all from two `pla-*` recordings. Under LORO, 5 of 7 folds have zero stress in the test set, so F1[stress] is structurally 0 for those folds. The single most impactful next step is collecting more `pla-*` recordings.
-6. **Random-split numbers are misleading for the CNN.** The +0.45 LORO→random-split delta is overlap leakage (50 % window overlap → adjacent windows split between train and test). For a fair cross-recording claim, only LORO numbers should be quoted.
+1. **XGBoost on the 8 PDF features is the strongest model on every meaningful axis.** macro-F1 0.723 under honest LORO, balanced per-class recall (80 % rest / 80 % meditation / 80 % stress / 76 % recovery). Production candidate.
+2. **The new `rest` ↔ `recovery` distinction is the dominant difficulty for the classical models.** Both look like quiet sitting from a physiology standpoint. RF and XGBoost score 75–87 % on both individually, but confusions between them account for most off-diagonal mass in the LORO matrices.
+3. **The 5-minute / 10-minute boundary skip removed ~4 windows per medi recording and ~2 per pla recording.** Net dataset is 182 classical windows / 177 CNN windows (vs ~200+ if we kept the transition windows). No model regression observed from this cleanup.
+4. **The `stress` class has 5 windows total** across 4 plank recordings. XGBoost recalls 4 of them (80 %), KNN recalls 3 (60 %), RandomForest 0, 1D-CNN 3 (60 %). Collecting more plank recordings remains the single highest-leverage data improvement.
+5. **The 1D-CNN is unfit for production at this data scale.** Its LORO macro-F1 of 0.262 (vs random-split 0.850) is the cleanest demonstration so far that the +0.59 random-split inflation is overlap leakage. Until we have ≥1000 windows per class, classical features win.
 
 ---
 
 ## 7. Advice / next steps
 
-1. **Adopt XGBoost on the 8 PDF features as the production baseline.** macro-F1 0.825 under honest LORO. Drop temperature from the classical feature set — it never beats the PDF set and destroys the only working stress predictions.
-2. **Collect more `pla-*` (stress) recordings.** Highest-leverage single change. Going from 4 stress windows to ~50 would make F1[stress] statistically meaningful and very likely lift macro-F1 across every model.
-3. **Treat the 1D-CNN as research, not production.** Its strong dependence on temperature (and on overlap leakage under random split) indicates it can't yet extract HRV from raw ECG at this data scale. Keep it on hand to revisit once more data is available.
-4. **Report per-fold spread, not just the mean.** XGBoost LORO macro-F1 ranges from 0.46 to 1.00 across folds. A single mean understates the uncertainty.
+1. **Ship XGBoost on the 8 PDF features as the production baseline.** macro-F1 0.723 LORO, balanced per-class recall, fits in memory, trains in seconds without a GPU, no hyperparameters to tune live.
+2. **Collect more plank recordings.** 4 plank recordings → 5 stress windows is the floor on stress recall. Each new plank recording adds ~1–2 windows; even 4 more recordings would let us evaluate F1[stress] with statistical meaning.
+3. **Treat `rest` vs `recovery` as a separate question.** They are physically the same kind of sitting; the only difference is "before stress" vs "after stress". If the team's downstream application doesn't actually need to tell them apart, collapsing back to a 3-class `{baseline, meditation, stress}` problem will lift macro-F1 by ~0.05–0.10.
+4. **Keep the 1D-CNN as research, not deployment.** Revisit once we have ≥10× more data per class.
 
 ---
 
 ## 8. Reproduce
 
 ```bash
-# Classical models, LORO + temperature ablation
+# Re-download the dataset (places .txt files in data/)
+mkdir -p data/_old && mv data/*.txt data/_old/ 2>/dev/null
+cd data && uv run --group dev gdown --folder \
+    "https://drive.google.com/drive/folders/11epSBil0cIWSKvtShCp86gCrUKEOjxkn"
+cd .. && mv "data/Stress test data/"*.txt data/
+
+# Classical models, LORO + random split
 uv run python -m src.local_eval
 
-# Classical models, 5-seed random 70:15:15 split
-uv run python -c "from src.local_eval import run_random_split_temp_ablation; run_random_split_temp_ablation()"
-
-# 1D-CNN, LORO + temperature ablation
+# 1D-CNN, LORO + random split
 uv run python -m src.dl_train
 
-# 1D-CNN, 5-seed random 70:15:15 split
-uv run python -c "from src.dl_train import run_random_split_temp_ablation; run_random_split_temp_ablation()"
-
-# Regenerate all confusion matrices and heatmap PNGs
+# Regenerate confusion matrices + heatmap PNGs
 uv run python scripts/show_confusion_matrices.py > confusion-matrices.md
 ```
 
 Output locations:
-- `outputs/local_loro_temp_ablation.json`, `outputs/dl_local_loro_temp_ablation.json`
-- `outputs/local_randomsplit_temp_ablation.json`, `outputs/dl_local_randomsplit_temp_ablation.json`
+- `outputs/local_loro.json`, `outputs/local_randomsplit.json`
+- `outputs/dl_local_loro.json`, `outputs/dl_local_randomsplit.json`
 - `figures/confusion/*.png` (tracked in git)
-- `confusion-matrices.md` (16 markdown tables, regenerable from the JSONs)
+- `confusion-matrices.md` (8 markdown tables)

@@ -20,7 +20,7 @@ from typing import Iterable
 
 import numpy as np
 
-from .features import OVERLAP, WINDOW_S, preprocess_recording
+from .features import OVERLAP, WINDOW_S, _window_touches_boundary, preprocess_recording
 from .io import (
     Recording,
     list_recordings,
@@ -28,12 +28,12 @@ from .io import (
     phase_boundaries,
     resample_uniform,
 )
-from .pipeline import assign_activity
+from .pipeline import PHASE_CLASSES, assign_activity
 
 TARGET_FS = 250.0
-ACTIVITY_TO_LABEL = {"baseline": 0, "meditation": 1, "stress": 2}
+ACTIVITY_TO_LABEL = {name: i for i, name in enumerate(PHASE_CLASSES)}
 LABEL_TO_ACTIVITY = {v: k for k, v in ACTIVITY_TO_LABEL.items()}
-LABEL_NAMES = ("baseline", "meditation", "stress")
+LABEL_NAMES = tuple(PHASE_CLASSES)
 WINDOW_N = int(WINDOW_S * TARGET_FS)
 
 
@@ -121,6 +121,13 @@ def windows_from_local_recording(
         t = p_start - ecg_t0
         end_local = p_end - ecg_t0
         while t + WINDOW_S <= end_local + 1e-6:
+            # Absolute time of the window edges (for boundary check) is the
+            # ECG-local time + ecg_t0; but phase_boundaries returns absolute
+            # times, so the local time t corresponds to absolute t + ecg_t0.
+            abs_t = t + ecg_t0
+            if _window_touches_boundary(abs_t, abs_t + WINDOW_S):
+                t += step
+                continue
             a = int(round(t * TARGET_FS))
             b = a + WINDOW_N
             if a < 0 or b > n_target:

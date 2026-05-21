@@ -1,136 +1,104 @@
 # biesl-ml
 
-Machine learning experiments on multimodal physiological signals captured from a wearable device.
+Machine-learning experiments on multimodal physiological signals captured from a wearable device.
 
-Data link : https://drive.google.com/drive/u/1/folders/11epSBil0cIWSKvtShCp86gCrUKEOjxkn
+**Task.** Per-window 4-class classification — `rest` / `meditation` / `stress` / `recovery`.
+**Features.** The eight parameters defined in [`features.pdf`](features.pdf), nothing else.
+**Headline result.** XGBoost on those 8 features under leave-one-recording-out reaches **macro-F1 0.723**. Full numbers and confusion matrices in [`report.md`](report.md).
 
-## Signals
+## Dataset
 
-Each recording is a tab-separated text file with four time-aligned channel pairs
-(`time_*_s` in seconds, sampled independently per channel):
+The raw recordings live in this Google Drive folder (shared link, view access):
 
-| Channel    | Time column          | Value column           | Approx. rate |
-| ---------- | -------------------- | ---------------------- | ------------ |
-| Microphone | `time_microphone_s`  | `microphone_data`      | ~2000 Hz     |
-| Breathing  | `time_br_s`          | `br_data`              | ~500 Hz      |
-| ECG        | `time_ecg_s`         | `ecg_data`             | ~500 Hz      |
-| Skin temp. | `time_temperature_s` | `temperature_object_C` | ~1 Hz        |
+> **https://drive.google.com/drive/u/0/folders/11epSBil0cIWSKvtShCp86gCrUKEOjxkn**
 
-Each channel has its own time vector — they are **not** row-aligned and must be
-resampled or windowed onto a common grid before training.
+To fetch fresh into `data/`:
+
+```bash
+mkdir -p data/_old && mv data/*.txt data/_old/ 2>/dev/null
+cd data && uv run --group dev gdown --folder \
+    "https://drive.google.com/drive/folders/11epSBil0cIWSKvtShCp86gCrUKEOjxkn"
+cd .. && mv "data/Stress test data/"*.txt data/
+```
+
+`data/` is gitignored. The folder currently contains 9 `*.txt` recordings (`mta`, `mta2` subjects, sessions 5-17 and 5-19) plus an `AAA read me.docx` (renamed to `README_dataset.docx` on disk).
+
+### Signal channels (per recording)
+
+Each recording is a tab-separated text file with four time-aligned channel pairs. Column **indices** are stable across the schema variants in the dataset (e.g. `time_ecg / data_ecg` vs `ads_time_2 / ads_ch2_data`); [`src/io.py`](src/io.py) reads by index, not by header name:
+
+| Channel    | Index pair | Approx. rate | Used by features.pdf for                          |
+| ---------- | ---------- | ------------ | -------------------------------------------------- |
+| Microphone | 0, 1       | ~2000 Hz     | `csi` (Shannon-energy envelope → S1/S2 ratio)      |
+| Breathing  | 2, 3       | ~500 Hz      | `rr`, `rrv` (slope-based peak detector)            |
+| ECG        | 4, 5       | ~500 Hz      | `hr`, `hrv_rmssd`, `hrv_lf`, `hrv_hf`, `hrv_lf_hf` |
+| Skin temp  | 6, 7       | ~1 Hz        | **not used** (excluded per features.pdf)           |
+
+Each channel has its own time vector — they are not row-aligned and must be resampled to a common grid before training. The pipeline does this internally.
+
+### Protocol
+
+Every recording is `rest → stress → recovery`:
+
+* `rest`: 0–5 min (300 s)
+* `stress`: 5 min – (5 + stressor duration). For `medi` recordings the stressor is 5 min, ending at 10 min. For `pla` (plank) recordings the duration is parsed from the filename (e.g. `pla_1'40` = 1 min 40 s).
+* `recovery`: end of stress phase → end of file (typically ~15 min total).
+
+**Boundary policy.** Per patient request, windows that touch the 5-min or 10-min protocol transitions are excluded from training and evaluation. See `src.features._window_touches_boundary`.
 
 ## Repository layout
 
 ```
 biesl-ml/
-├── data/         # raw recordings (gitignored)
-├── notebooks/    # exploratory analysis and model training
-├── src/          # reusable preprocessing / model code
-├── .gitignore
-└── README.md
+├── data/                   # raw recordings (gitignored)
+│   └── _old/               # previous dataset, kept for reference
+├── figures/                # tracked plots (confusion matrices, etc.)
+├── notebooks/              # exploratory analysis
+├── scripts/                # one-off runners (confusion matrices, etc.)
+├── src/                    # pipeline code (loaders, preprocessing, models)
+├── features.pdf            # spec for the 8 features used by the project
+├── report.md               # teammate-facing report with embedded figures
+├── confusion-matrices.md   # 8 confusion matrices (3 classical × 2 protocols + 1D-CNN × 2)
+├── README.md
+└── pyproject.toml
 ```
-
-`data/` is excluded from version control — drop the raw `*-medi.txt` files in
-there locally. The current dataset contains:
-
-- `mta-5-8-medi.txt`
-- `nvt-5-8-medi.txt`
-- `nvt-5-15-medi.txt`
-
-Filename convention: `{subject}-{M}-{D}-medi.txt`.
 
 ## Getting started
 
-This project uses [uv](https://docs.astral.sh/uv/) for environment and dependency
-management. Dependencies are declared in `pyproject.toml`; the lockfile is
-`uv.lock`.
+This project uses [uv](https://docs.astral.sh/uv/) for environment and dependency management. Dependencies are declared in `pyproject.toml`; the lockfile is `uv.lock`.
 
 ```bash
-# Install runtime deps (numpy, pandas, scipy, scikit-learn, matplotlib, torch)
-uv sync
-
-# Or include the notebook tooling (jupyterlab, ipykernel, ipywidgets)
-uv sync --group notebook
+uv sync                    # install runtime deps (numpy, pandas, scipy, sklearn, torch, etc.)
+uv sync --group notebook   # + JupyterLab + ipykernel + ipywidgets
+uv sync --group dev        # + gdown (for re-downloading the dataset)
 ```
 
-A Jupyter kernel named **Python (biesl-ml)** is registered against this
-environment. Re-register it any time after recreating `.venv`:
+## End-to-end commands
 
 ```bash
-uv run --group notebook python -m ipykernel install --user \
-    --name biesl-ml --display-name "Python (biesl-ml)"
+# Classical models (KNN / RandomForest / XGBoost), LORO + 70:15:15 random split
+uv run python -m src.local_eval
+
+# 1D-CNN, LORO + 70:15:15 random split (RTX 5090 in ~1 min, CPU in ~10)
+uv run python -m src.dl_train
+
+# Regenerate confusion matrices + heatmap PNGs in figures/confusion/
+uv run python scripts/show_confusion_matrices.py > confusion-matrices.md
 ```
 
-Launch JupyterLab:
+Output JSONs land in `outputs/` (gitignored):
 
-```bash
-uv run --group notebook jupyter lab
-```
+| File                                 | Contents                                              |
+| ------------------------------------ | ----------------------------------------------------- |
+| `outputs/local_loro.json`            | classical, per-recording LORO + summary               |
+| `outputs/local_randomsplit.json`     | classical, 5-seed 70:15:15 random split + summary     |
+| `outputs/dl_local_loro.json`         | 1D-CNN, per-recording LORO + summary                  |
+| `outputs/dl_local_randomsplit.json`  | 1D-CNN, 5-seed 70:15:15 random split + summary        |
 
-Add new packages with `uv add <pkg>` (runtime) or `uv add --group notebook <pkg>`
-(notebook-only).
+## Where to look first
 
-Notebooks live in `notebooks/`; shared loaders and feature code go in `src/`.
-
-## Loading a recording
-
-Column header names vary across files (some have trailing spaces, a typo
-`rime_br`, or no `_s` suffix), so `src.io.load_recording` reads by column
-**index** (0,2,4,6 = time columns; 1,3,5,7 = value columns).
-
-```python
-from src.io import load_recording
-rec = load_recording("data/mta-5-17-pla-1'26.csv")
-print(rec.subject, rec.stressor, rec.plank_seconds)  # mta pla 86.0
-print(rec.channels["ecg"].shape)                     # (2, n_samples)
-```
-
-## KNN pipeline
-
-End-to-end (load → filter → peak detect → window → features → KNN with
-subject-grouped CV):
-
-```bash
-uv run python -m src.pipeline   # writes outputs/
-uv run python -m src.plots      # writes signal + confusion diagnostics
-```
-
-Outputs land in `outputs/` (gitignored):
-
-| File                  | Contents                                                       |
-| --------------------- | -------------------------------------------------------------- |
-| `features.csv`        | per-window feature table (meta + ~28 features)                 |
-| `loso_results.json`   | per-fold metrics + aggregated confusion matrix                 |
-| `confusion_loso.png`  | aggregated confusion matrix figure                             |
-| `signals_*.png`       | raw vs filtered signal + detected peaks per recording          |
-| `knn_model.joblib`    | final pipeline fit on all data                                 |
-| `feature_names.joblib`| feature column order corresponding to the model                |
-
-### Preprocessing
-
-| Signal           | Resample fs | Filter                       | Peaks                          |
-| ---------------- | ----------- | ---------------------------- | ------------------------------ |
-| ECG              | 250 Hz      | BP 0.5–40 Hz + 60 Hz notch   | Pan–Tompkins (neurokit2) + kubios fix |
-| BR               | 25 Hz       | BP 0.1–0.5 Hz + Savitzky–Golay | neurokit2 `rsp_peaks` (biosppy) |
-| CPS (mic) — card | 100 Hz      | BP 0.8–3 Hz                  | `find_peaks` on bandpassed     |
-| CPS (mic) — resp | 100 Hz      | BP 0.1–0.5 Hz                | `find_peaks` on bandpassed     |
-| Skin temp        | ~1 Hz       | none                         | mean / std / slope per window  |
-
-All bandpasses use second-order-section form (`sosfiltfilt`) — the
-`b,a / filtfilt` form is numerically unstable at the very low normalized
-cutoffs needed for the BR / CPS-resp bands.
-
-### Labels
-
-Each recording has a known `rest → stress → recovery` structure. Phase
-boundaries come from filename metadata (5 + 5 + 5 min for `medi`; 5 +
-parsed-plank-duration + 5 min for `pla`). The model classifies these three
-phases over 30 s windows with 50 % overlap.
-
-### Subject-wise split
-
-There are only two unique subjects (`mta`, `nvt`); evaluation is
-LeaveOneGroupOut by subject. Inner CV for hyperparameter tuning groups by
-recording when ≥3 training recordings are available, else falls back to
-StratifiedKFold. With only two subjects, the within-subject inner-CV scores
-are optimistic — the LOSO test scores are the honest generalization estimate.
+* [`report.md`](report.md) — the teammate-facing report (tables, all 8 confusion-matrix PNGs).
+* [`confusion-matrices.md`](confusion-matrices.md) — confusion matrices as markdown tables.
+* [`src/features.py`](src/features.py) — the 8-feature implementation that matches `features.pdf`.
+* [`src/preprocess.py`](src/preprocess.py) — filters and peak detectors per the spec.
+* [`src/local_eval.py`](src/local_eval.py) / [`src/dl_train.py`](src/dl_train.py) — evaluation drivers.

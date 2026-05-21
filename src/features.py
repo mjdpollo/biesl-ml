@@ -47,14 +47,32 @@ FEATURE_NAMES = (
     "rrv",
 )
 
-# Optional temperature features — NOT in features.pdf but used for the
-# explicit "with temperature vs without temperature" ablation the user
-# requested. Toggle via `include_temp=True` on windows_for_recording().
+# Optional temperature features — NOT in features.pdf, kept only because
+# legacy ablation runners may still reference them. New code should NOT
+# include them (the project no longer uses temperature).
 TEMP_FEATURE_NAMES = (
     "temp_mean_C",
     "temp_std_C",
     "temp_slope_Cps",
 )
+
+# Skip windows whose extent touches the 5-min or 10-min protocol transitions
+# (rest → stress at 300 s, stress → recovery at 600 s). The patient reports
+# discomfort around these transitions; ±BOUNDARY_BUFFER_S around each
+# boundary is excluded. Buffer=0 means any window that strictly contains a
+# boundary point (e.g. [240, 300] or [300, 360]) is dropped.
+BOUNDARY_TIMES_S = (300.0, 600.0)
+BOUNDARY_BUFFER_S = 0.0
+
+
+def _window_touches_boundary(t_start: float, t_end: float) -> bool:
+    """True iff the window [t_start, t_end] touches any protocol boundary
+    (within ±BOUNDARY_BUFFER_S). Used to drop boundary-spanning windows.
+    """
+    for b in BOUNDARY_TIMES_S:
+        if t_start <= b + BOUNDARY_BUFFER_S and t_end >= b - BOUNDARY_BUFFER_S:
+            return True
+    return False
 
 
 @dataclass
@@ -259,6 +277,12 @@ def windows_for_recording(
         t = p_start
         while t + window_s <= p_end + 1e-6:
             t_end = t + window_s
+
+            # Skip windows that touch the 5-min / 10-min protocol boundaries
+            # — patient reports discomfort around the transitions.
+            if _window_touches_boundary(t, t_end):
+                t += step
+                continue
 
             # ECG: slice R-peaks, compute HR/HRV
             ecg_window_peaks = _slice_peaks_by_time(

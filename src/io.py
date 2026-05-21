@@ -17,8 +17,8 @@ CHANNEL_INDICES = {
 }
 
 FNAME_RE = re.compile(
-    r"^(?P<subject>[A-Za-z]+)-(?P<month>\d+)-(?P<day>\d+)-(?P<stressor>medi|math|pla)"
-    r"(?:-(?P<plank>[^\.\s\(]+))?(?:\s*\((?P<rep>\d+)\))?\.csv$"
+    r"^(?P<subject>[A-Za-z]+\d*)[-_](?P<month>\d+)[-_](?P<day>\d+)[-_](?P<stressor>medi|math|pla)"
+    r"(?:[-_](?P<plank>[^\.\s\(]+))?(?:\s*\((?P<rep>\d+)\))?\.(?:csv|txt)$"
 )
 
 
@@ -105,10 +105,16 @@ def load_recording(path: str) -> Recording:
 
 
 def list_recordings(data_dir: str) -> list[str]:
+    """Return sorted CSV / TXT recording paths in `data_dir` (top level only).
+
+    Recordings dropped here as raw text per the features.pdf workflow are
+    .txt; legacy / pre-cleaned CSVs are .csv. Both are accepted.
+    """
     return sorted(
         os.path.join(data_dir, f)
         for f in os.listdir(data_dir)
-        if f.lower().endswith(".csv")
+        if f.lower().endswith((".csv", ".txt"))
+        and not f.startswith("_")           # skip data/_old/ markers if any
     )
 
 

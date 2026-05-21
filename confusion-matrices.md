@@ -1,144 +1,92 @@
-# Confusion matrices — all models × protocols × feature configs
+# Confusion matrices — local-only, 4 classes (rest / meditation / stress / recovery)
 
-Companion file to [summary-before-data-processing.md](summary-before-data-processing.md) and [report.md](report.md). Generated from the run JSONs under `outputs/`.
+Companion file to [report.md](report.md). Generated from the per-protocol JSONs under `outputs/`.
 
-**Reading the tables.** Rows are true labels, columns are predictions. **Each row is normalized to 100 %** (true-class recall view): the cell at (`stress`, `stress`) is the percentage of actual `stress` windows the model correctly predicted as `stress`. A `support` column shows the raw count of true samples per row — crucial when `stress` has only 4 samples total under LORO and a 100 % means "1 out of 1 got it".
+**Reading the tables.** Rows are true labels, columns are predictions. **Each row is row-normalized to 100 %** (true-class recall view): the cell at (`stress`, `stress`) is the percentage of actual `stress` windows the model correctly predicted as `stress`. The `support` column shows the raw count of true samples per row.
 
-**Reading the PNGs.** Same row-normalization, fixed colour scale 0–100 %, so heatmaps are directly comparable across (model × protocol × config). The y-axis tick labels include the support count.
+**Reading the PNGs.** Same row-normalization, fixed colour scale 0–100 %. The y-axis tick labels include the per-row support count.
 
-Heatmap PNGs of every matrix live in [figures/confusion/](figures/confusion/). Regenerate with:
+Heatmap PNGs live in [figures/confusion/](figures/confusion/). Regenerate with:
 
 ```bash
 uv run python scripts/show_confusion_matrices.py > confusion-matrices.md
 ```
 
-## LORO confusion matrices (sum across 7 folds)
+## LORO confusion matrices (sum across recording folds)
 
 
 ### Classical — PDF features only
 
-#### KNN — LORO — PDF features only  *(n_test=180)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 91.6% | 8.4% | 0.0% | 131 |
-| **meditation** | 24.4% | 75.6% | 0.0% | 45 |
-| **stress** | 100.0% | 0.0% | 0.0% | 4 |
+#### KNN — LORO  *(n_test=182)*
+| true \\ pred | rest | meditation | stress | recovery | support |
+|---|---|---|---|---|---|
+| **rest** | 68.1% | 6.9% | 6.9% | 18.1% | 72 |
+| **meditation** | 5.7% | 60.0% | 8.6% | 25.7% | 35 |
+| **stress** | 20.0% | 0.0% | 60.0% | 20.0% | 5 |
+| **recovery** | 22.9% | 10.0% | 1.4% | 65.7% | 70 |
 
-#### RANDOMFOREST — LORO — PDF features only  *(n_test=180)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 95.4% | 4.6% | 0.0% | 131 |
-| **meditation** | 17.8% | 82.2% | 0.0% | 45 |
-| **stress** | 100.0% | 0.0% | 0.0% | 4 |
+#### RANDOMFOREST — LORO  *(n_test=182)*
+| true \\ pred | rest | meditation | stress | recovery | support |
+|---|---|---|---|---|---|
+| **rest** | 87.5% | 2.8% | 0.0% | 9.7% | 72 |
+| **meditation** | 20.0% | 71.4% | 0.0% | 8.6% | 35 |
+| **stress** | 20.0% | 0.0% | 0.0% | 80.0% | 5 |
+| **recovery** | 22.9% | 2.9% | 0.0% | 74.3% | 70 |
 
-#### XGBOOST — LORO — PDF features only  *(n_test=180)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 96.2% | 3.8% | 0.0% | 131 |
-| **meditation** | 24.4% | 75.6% | 0.0% | 45 |
-| **stress** | 75.0% | 0.0% | 25.0% | 4 |
+#### XGBOOST — LORO  *(n_test=182)*
+| true \\ pred | rest | meditation | stress | recovery | support |
+|---|---|---|---|---|---|
+| **rest** | 79.2% | 2.8% | 0.0% | 18.1% | 72 |
+| **meditation** | 14.3% | 80.0% | 0.0% | 5.7% | 35 |
+| **stress** | 20.0% | 0.0% | 80.0% | 0.0% | 5 |
+| **recovery** | 22.9% | 1.4% | 0.0% | 75.7% | 70 |
 
-### Classical — PDF + temperature
+### 1D-CNN — PDF channels
 
-#### KNN — LORO — PDF + temperature  *(n_test=180)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 93.1% | 6.9% | 0.0% | 131 |
-| **meditation** | 40.0% | 60.0% | 0.0% | 45 |
-| **stress** | 100.0% | 0.0% | 0.0% | 4 |
-
-#### RANDOMFOREST — LORO — PDF + temperature  *(n_test=180)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 94.7% | 5.3% | 0.0% | 131 |
-| **meditation** | 22.2% | 77.8% | 0.0% | 45 |
-| **stress** | 100.0% | 0.0% | 0.0% | 4 |
-
-#### XGBOOST — LORO — PDF + temperature  *(n_test=180)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 96.2% | 3.8% | 0.0% | 131 |
-| **meditation** | 11.1% | 88.9% | 0.0% | 45 |
-| **stress** | 100.0% | 0.0% | 0.0% | 4 |
-
-### 1D-CNN — LORO
-
-#### 1D-CNN — LORO — PDF channels (3 ch)  *(n_test=174)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 66.4% | 26.4% | 7.2% | 125 |
-| **meditation** | 42.2% | 57.8% | 0.0% | 45 |
-| **stress** | 50.0% | 50.0% | 0.0% | 4 |
-
-#### 1D-CNN — LORO — PDF + temperature (4 ch)  *(n_test=174)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 84.0% | 8.8% | 7.2% | 125 |
-| **meditation** | 31.1% | 68.9% | 0.0% | 45 |
-| **stress** | 50.0% | 0.0% | 50.0% | 4 |
+#### 1D-CNN — LORO  *(n_test=177)*
+| true \\ pred | rest | meditation | stress | recovery | support |
+|---|---|---|---|---|---|
+| **rest** | 16.7% | 1.4% | 12.5% | 69.4% | 72 |
+| **meditation** | 34.3% | 31.4% | 25.7% | 8.6% | 35 |
+| **stress** | 20.0% | 20.0% | 60.0% | 0.0% | 5 |
+| **recovery** | 53.8% | 1.5% | 4.6% | 40.0% | 65 |
 
 
-## Random-split confusion matrices (sum across 5 seeds)
+## Random 70:15:15 confusion matrices (sum across 5 seeds)
 
 
 ### Classical — PDF features only
 
-#### KNN — random 70:15:15 — PDF features only  *(n_test=135)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 90.9% | 9.1% | 0.0% | 99 |
-| **meditation** | 29.4% | 70.6% | 0.0% | 34 |
-| **stress** | 100.0% | 0.0% | 0.0% | 2 |
+#### KNN — random 70:15:15  *(n_test=140)*
+| true \\ pred | rest | meditation | stress | recovery | support |
+|---|---|---|---|---|---|
+| **rest** | 73.8% | 6.6% | 0.0% | 19.7% | 61 |
+| **meditation** | 8.0% | 84.0% | 0.0% | 8.0% | 25 |
+| **stress** | 40.0% | 0.0% | 0.0% | 60.0% | 5 |
+| **recovery** | 30.6% | 10.2% | 0.0% | 59.2% | 49 |
 
-#### RANDOMFOREST — random 70:15:15 — PDF features only  *(n_test=135)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 93.9% | 6.1% | 0.0% | 99 |
-| **meditation** | 17.6% | 82.4% | 0.0% | 34 |
-| **stress** | 100.0% | 0.0% | 0.0% | 2 |
+#### RANDOMFOREST — random 70:15:15  *(n_test=140)*
+| true \\ pred | rest | meditation | stress | recovery | support |
+|---|---|---|---|---|---|
+| **rest** | 86.9% | 0.0% | 0.0% | 13.1% | 61 |
+| **meditation** | 8.0% | 80.0% | 0.0% | 12.0% | 25 |
+| **stress** | 40.0% | 0.0% | 0.0% | 60.0% | 5 |
+| **recovery** | 26.5% | 2.0% | 0.0% | 71.4% | 49 |
 
-#### XGBOOST — random 70:15:15 — PDF features only  *(n_test=135)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 94.9% | 5.1% | 0.0% | 99 |
-| **meditation** | 14.7% | 85.3% | 0.0% | 34 |
-| **stress** | 100.0% | 0.0% | 0.0% | 2 |
+#### XGBOOST — random 70:15:15  *(n_test=140)*
+| true \\ pred | rest | meditation | stress | recovery | support |
+|---|---|---|---|---|---|
+| **rest** | 82.0% | 1.6% | 0.0% | 16.4% | 61 |
+| **meditation** | 4.0% | 92.0% | 0.0% | 4.0% | 25 |
+| **stress** | 20.0% | 20.0% | 40.0% | 20.0% | 5 |
+| **recovery** | 16.3% | 4.1% | 0.0% | 79.6% | 49 |
 
-### Classical — PDF + temperature
+### 1D-CNN — PDF channels
 
-#### KNN — random 70:15:15 — PDF + temperature  *(n_test=135)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 90.9% | 9.1% | 0.0% | 99 |
-| **meditation** | 38.2% | 61.8% | 0.0% | 34 |
-| **stress** | 100.0% | 0.0% | 0.0% | 2 |
-
-#### RANDOMFOREST — random 70:15:15 — PDF + temperature  *(n_test=135)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 93.9% | 6.1% | 0.0% | 99 |
-| **meditation** | 17.6% | 82.4% | 0.0% | 34 |
-| **stress** | 100.0% | 0.0% | 0.0% | 2 |
-
-#### XGBOOST — random 70:15:15 — PDF + temperature  *(n_test=135)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 94.9% | 5.1% | 0.0% | 99 |
-| **meditation** | 17.6% | 82.4% | 0.0% | 34 |
-| **stress** | 100.0% | 0.0% | 0.0% | 2 |
-
-### 1D-CNN — random 70:15:15
-
-#### 1D-CNN — random 70:15:15 — PDF channels (3 ch)  *(n_test=135)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 89.4% | 8.5% | 2.1% | 94 |
-| **meditation** | 18.4% | 76.3% | 5.3% | 38 |
-| **stress** | 33.3% | 0.0% | 66.7% | 3 |
-
-#### 1D-CNN — random 70:15:15 — PDF + temperature (4 ch)  *(n_test=135)*
-| true \\ pred | baseline | meditation | stress | support |
-|---|---|---|---|---|
-| **baseline** | 95.7% | 0.0% | 4.3% | 94 |
-| **meditation** | 5.3% | 94.7% | 0.0% | 38 |
-| **stress** | 66.7% | 0.0% | 33.3% | 3 |
+#### 1D-CNN — random 70:15:15  *(n_test=135)*
+| true \\ pred | rest | meditation | stress | recovery | support |
+|---|---|---|---|---|---|
+| **rest** | 94.6% | 1.8% | 0.0% | 3.6% | 56 |
+| **meditation** | 0.0% | 95.7% | 0.0% | 4.3% | 23 |
+| **stress** | 0.0% | 0.0% | 66.7% | 33.3% | 3 |
+| **recovery** | 18.9% | 5.7% | 0.0% | 75.5% | 53 |

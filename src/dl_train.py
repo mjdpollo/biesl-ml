@@ -76,7 +76,7 @@ class WindowDataset(Dataset):
 
 # ---- training -------------------------------------------------------------
 
-def _class_weights(y: np.ndarray, n_classes: int = 3) -> torch.Tensor:
+def _class_weights(y: np.ndarray, n_classes: int = len(PHASE_CLASSES)) -> torch.Tensor:
     counts = np.zeros(n_classes, dtype=np.float64)
     for c, n in Counter(y.tolist()).items():
         counts[c] = n
@@ -404,64 +404,62 @@ def run_random_split_dl(
     )
 
 
-def run_random_split_temp_ablation(
+def run_random_split_eval(
     *, out_dir: str = "outputs",
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
     epochs: int = EPOCHS,
 ) -> dict:
+    """7:1.5:1.5 stratified random window split, 1D-CNN, PDF channels only."""
     os.makedirs(out_dir, exist_ok=True)
     print("=" * 78)
-    print(" Random 70:15:15 window split  —  1D-CNN, with/without temperature")
+    print(" Random 70:15:15 window split  —  1D-CNN, PDF channels only")
     print("=" * 78)
-    print(f"device: {DEVICE}, model params: {count_parameters(BiosignalCNN1D(in_channels=3))}")
+    print(f"device: {DEVICE}, model params: "
+          f"{count_parameters(BiosignalCNN1D(in_channels=3))}")
 
-    results = dict(
-        pdf_only=run_random_split_dl(
-            include_temp=False, label="PDF channels", seeds=seeds, epochs=epochs,
-        ),
-        with_temp=run_random_split_dl(
-            include_temp=True, label="PDF channels + temperature", seeds=seeds,
-            epochs=epochs,
-        ),
+    result = run_random_split_dl(
+        include_temp=False, label="PDF channels", seeds=seeds, epochs=epochs,
     )
-    path = os.path.join(out_dir, "dl_local_randomsplit_temp_ablation.json")
+    path = os.path.join(out_dir, "dl_local_randomsplit.json")
     with open(path, "w") as fh:
-        json.dump(results, fh, indent=2, default=_json_default)
+        json.dump(result, fh, indent=2, default=_json_default)
     print(f"\n  -> wrote {path}")
 
     print("\n" + "=" * 78)
     print(" 1D-CNN random-split  —  mean ± std macro-F1 over seeds")
     print("=" * 78)
     header_cls = "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
+    s = result["summary"]
+    acc = f"{s['mean_accuracy']:.3f}±{s['std_accuracy']:.3f}"
+    f1m = f"{s['mean_macro_f1']:.3f}±{s['std_macro_f1']:.3f}"
+    per_cls = "  ".join(f"{s['per_class_f1_mean'][c]:.3f}" for c in PHASE_CLASSES)
     print(f"{'config':<32s} {'acc':>10s} {'macroF1':>14s}  {header_cls}")
-    for key, lbl in (("pdf_only", "PDF channels (3 ch)"),
-                     ("with_temp", "+temp channel (4 ch)")):
-        s = results[key]["summary"]
-        acc = f"{s['mean_accuracy']:.3f}±{s['std_accuracy']:.3f}"
-        f1m = f"{s['mean_macro_f1']:.3f}±{s['std_macro_f1']:.3f}"
-        per_cls = "  ".join(
-            f"{s['per_class_f1_mean'][c]:.3f}" for c in PHASE_CLASSES
-        )
-        print(f"{lbl:<32s} {acc:>10s} {f1m:>14s}  {per_cls}")
-    return results
+    print(f"{'1D-CNN (PDF channels)':<32s} {acc:>10s} {f1m:>14s}  {per_cls}")
+    return result
 
 
-def run_local_temp_ablation(*, out_dir: str = "outputs", epochs: int = EPOCHS) -> dict:
+def run_local_eval(*, out_dir: str = "outputs", epochs: int = EPOCHS) -> dict:
+    """LORO across local recordings with the 1D-CNN, PDF channels only."""
     os.makedirs(out_dir, exist_ok=True)
     print(f"device: {DEVICE}")
     print(f"model params: {count_parameters(BiosignalCNN1D(in_channels=3))}")
 
-    pdf_only = run_local_loro(include_temp=False, epochs=epochs)
-    with_temp = run_local_loro(include_temp=True, epochs=epochs)
-
-    out = dict(pdf_only=pdf_only, with_temp=with_temp)
-    path = os.path.join(out_dir, "dl_local_loro_temp_ablation.json")
+    result = run_local_loro(include_temp=False, epochs=epochs)
+    path = os.path.join(out_dir, "dl_local_loro.json")
     with open(path, "w") as fh:
-        json.dump(out, fh, indent=2, default=_json_default)
+        json.dump(result, fh, indent=2, default=_json_default)
     print(f"\n  -> wrote {path}")
 
-    _print_comparison(out)
-    return out
+    print("\n" + "=" * 78)
+    print(" 1D-CNN local-only LORO  —  PDF channels only")
+    print("=" * 78)
+    header_cls = "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
+    s = result["summary"]
+    per_cls = "  ".join(f"{s['per_class_f1_mean'][c]:6.3f}" for c in PHASE_CLASSES)
+    print(f"{'config':<32s} {'acc':>6s} {'macroF1':>9s}  {header_cls}")
+    print(f"{'1D-CNN (PDF channels)':<32s} {s['mean_accuracy']:>6.3f} "
+          f"{s['mean_macro_f1']:>9.3f}  {per_cls}")
+    return result
 
 
 def _json_default(o):
@@ -474,31 +472,9 @@ def _json_default(o):
     return str(o)
 
 
-def _print_comparison(out: dict) -> None:
-    print("\n" + "=" * 78)
-    print(" 1D-CNN local-only LORO  —  with temperature vs without")
-    print("=" * 78)
-    header_cls = "  ".join(f"F1[{c}]" for c in PHASE_CLASSES)
-    print(f"{'config':<30s} {'acc':>6s} {'macroF1':>9s}  {header_cls}")
-    for key, lbl in (("pdf_only", "PDF channels (3 ch)"),
-                     ("with_temp", "+temp channel (4 ch)")):
-        s = out[key]["summary"]
-        per_cls = "  ".join(f"{s['per_class_f1_mean'][c]:6.3f}" for c in PHASE_CLASSES)
-        print(f"{lbl:<30s} {s['mean_accuracy']:>6.3f} "
-              f"{s['mean_macro_f1']:>9.3f}  {per_cls}")
-
-    print("\nDelta (with_temp − pdf_only):")
-    a = out["pdf_only"]["summary"]
-    b = out["with_temp"]["summary"]
-    d_acc = b["mean_accuracy"] - a["mean_accuracy"]
-    d_f1 = b["mean_macro_f1"] - a["mean_macro_f1"]
-    d_pc = "  ".join(f"{b['per_class_f1_mean'][c] - a['per_class_f1_mean'][c]:+6.3f}"
-                     for c in PHASE_CLASSES)
-    print(f"{'1D-CNN':<14s} {d_acc:+8.3f} {d_f1:+11.3f}  {d_pc}")
-
-
 def main() -> None:
-    run_local_temp_ablation()
+    run_local_eval()
+    run_random_split_eval()
 
 
 if __name__ == "__main__":
