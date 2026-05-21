@@ -274,6 +274,9 @@ def windows_for_recording(
     for phase_name, (p_start, p_end) in phases.items():
         if p_end - p_start < window_s:
             continue
+        # 'recovery' is no longer part of the taxonomy — drop those windows entirely.
+        if phase_name == "recovery":
+            continue
         t = p_start
         while t + window_s <= p_end + 1e-6:
             t_end = t + window_s

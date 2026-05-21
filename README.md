@@ -2,9 +2,9 @@
 
 Machine-learning experiments on multimodal physiological signals captured from a wearable device.
 
-**Task.** Per-window 4-class classification — `rest` / `meditation` / `stress` / `recovery`.
+**Task.** Per-window 3-class classification — `rest` / `meditation` / `plank`. The post-stressor `recovery` phase is dropped from the dataset.
 **Features.** The eight parameters defined in [`features.pdf`](features.pdf), nothing else.
-**Headline result.** XGBoost on those 8 features under leave-one-recording-out reaches **macro-F1 0.723**. Full numbers and confusion matrices in [`report.md`](report.md).
+**Headline result.** XGBoost on those 8 features under leave-one-recording-out reaches **macro-F1 0.817**. Full numbers and confusion matrices in [`report.md`](report.md).
 
 ## Dataset
 

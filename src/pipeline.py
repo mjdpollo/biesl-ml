@@ -36,11 +36,11 @@ warnings.filterwarnings("ignore")  # filterwarnings handled per-window
 DATA_DIR = "data"
 OUT_DIR = "outputs"
 
-PHASE_CLASSES = ["rest", "meditation", "stress", "recovery"]
+PHASE_CLASSES = ["rest", "meditation", "plank"]
 
 
 def assign_activity(phase: str, stressor: str) -> str:
-    """Map (phase, stressor) to one of the four target classes.
+    """Map (phase, stressor) to one of the three target classes, or "" to drop.
 
     `phase` is one of "rest" / "stress" / "recovery" from phase_boundaries();
     `stressor` is the filename token ("medi" | "pla" | "math").
@@ -48,18 +48,19 @@ def assign_activity(phase: str, stressor: str) -> str:
     Returns:
         'rest'       — pre-stressor baseline period (typically the first 5 min)
         'meditation' — `stress` phase of a `medi` recording
-        'stress'     — `stress` phase of a `pla` (plank) recording
-        'recovery'   — post-stressor period (typically after 10 min)
+        'plank'      — `stress` phase of a `pla` (plank) recording
+        ''           — recovery period (NOT in our taxonomy any more, callers
+                       MUST filter on this empty string and skip the window)
     """
     if phase == "rest":
         return "rest"
     if phase == "recovery":
-        return "recovery"
+        return ""                   # signal: drop this window
     # phase == "stress"
     if stressor == "medi":
         return "meditation"
     if stressor == "pla":
-        return "stress"
+        return "plank"
     if stressor == "math":
         return "math"
     return f"stress_{stressor}"

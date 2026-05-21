@@ -115,6 +115,9 @@ def windows_from_local_recording(
     for phase_name, (p_start, p_end) in phases.items():
         if p_end - p_start < WINDOW_S:
             continue
+        # 'recovery' is not part of the taxonomy any more — drop it entirely.
+        if phase_name == "recovery":
+            continue
         activity = assign_activity(phase_name, rec.stressor)
         if activity not in ACTIVITY_TO_LABEL:
             continue

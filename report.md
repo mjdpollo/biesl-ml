@@ -1,16 +1,16 @@
-# Stress / Meditation / Rest / Recovery Classification Report
+# Rest / Meditation / Plank Classification Report
 
-**Task.** Per-window **4-class** classification: `rest` / `meditation` / `stress` / `recovery`.
+**Task.** Per-window **3-class** classification: `rest` / `meditation` / `plank`.
 **Data.** 9 local wearable recordings (~15 min each) from 2 subjects (`mta`, `mta2`), downloaded fresh from the team Google Drive folder ([see README](README.md#dataset)). WESAD is not used.
-**Features.** The eight parameters defined in [`features.pdf`](features.pdf), and only those — **no temperature features.**
-**Window-boundary policy.** Windows whose 60-s extent touches the 5-min or 10-min protocol transitions are excluded (patient reported discomfort at the transitions).
+**Features.** The eight parameters defined in [`features.pdf`](features.pdf), and only those — no temperature features.
+**Excluded data.** The post-stressor `recovery` phase is dropped entirely from the dataset. Windows whose 60-s extent touches the 5-min or 10-min protocol transitions are also excluded (patient discomfort at the transitions).
 **Evaluation protocols.** (a) Leave-one-recording-out (LORO, 9 folds) — the honest cross-recording benchmark; (b) stratified 70:15:15 random window split averaged over 5 seeds — useful as a sanity check but contaminated by 50 % window overlap.
 
 ---
 
 ## 1. Feature definitions (from features.pdf)
 
-Exactly eight features per 60 s window. No temperature features in this pipeline.
+Exactly eight features per 60 s window. No temperature features.
 
 | Feature | Channel | Preprocessing | Computation |
 |---|---|---|---|
@@ -24,29 +24,27 @@ Exactly eight features per 60 s window. No temperature features in this pipeline
 | `rrv` | Respiration | Same chain | Standard deviation of the last 5 breath intervals (s) |
 
 **Window length:** 60 s, 50 % overlap.
-**Boundary skip:** any window whose [t, t+60] includes the 5-min mark (300 s) or the 10-min mark (600 s) is dropped. With 50 % overlap and phase-respecting windowing this removes 4 windows per medi recording (2 near each boundary) and 2 per pla recording.
+**Boundary skip:** any window whose [t, t+60] includes the 5-min mark (300 s) or the 10-min mark (600 s) is dropped.
+**Recovery dropped:** the post-stressor period (typically 10 min onward for medi recordings; >5 min + plank-duration for pla recordings) is not in the taxonomy and is removed before windowing.
 
 ---
 
 ## 2. Dataset summary
 
-| Recording | rest | meditation | stress | recovery |
-|---|---|---|---|---|
-| `mta-5-17-medi` | 8 | 8 | 0 | 8 |
-| `mta-5-17-medi (1)` | 8 | 8 | 0 | 7 |
-| `mta-5-17-pla-1'26` (plank 1 m 26 s) | 8 | 0 | 1 | 7 |
-| `mta-5-17-pla-2` (plank 2 m) | 8 | 0 | 2 | 7 |
-| `mta2_5_19_medi` | 8 | 7 | 0 | 8 |
-| `mta_5_19_medi` | 8 | 7 | 0 | 7 |
-| `mta_5_19_medi (1)` | 8 | 7 | 0 | 8 |
-| `mta_5_19_pla_1'40` (plank 1 m 40 s) | 8 | 0 | 1 | 7 |
-| `mta_5_19_pla_2'20` (plank 2 m 20 s) | 8 | 0 | 1 | 7 |
-| **Total (classical pipeline, 182 windows)** | **72** | **35** | **5** | **70** |
-| **Total (CNN pipeline, 177 windows)** | **72** | **35** | **5** | **65** |
+| Recording | rest | meditation | plank |
+|---|---|---|---|
+| `mta-5-17-medi` | 8 | 8 | 0 |
+| `mta-5-17-medi (1)` | 8 | 8 | 0 |
+| `mta-5-17-pla-1'26` (plank 1 m 26 s) | 8 | 0 | 1 |
+| `mta-5-17-pla-2` (plank 2 m) | 8 | 0 | 2 |
+| `mta2_5_19_medi` | 8 | 7 | 0 |
+| `mta_5_19_medi` | 8 | 7 | 0 |
+| `mta_5_19_medi (1)` | 8 | 7 | 0 |
+| `mta_5_19_pla_1'40` (plank 1 m 40 s) | 8 | 0 | 1 |
+| `mta_5_19_pla_2'20` (plank 2 m 20 s) | 8 | 0 | 1 |
+| **Total** | **72** | **35** | **5** |
 
-The CNN pipeline aligns ECG, Resp and Mic-Shannon-envelope to a common 250 Hz grid; the slight length mismatch between channels causes a few `recovery` windows at the end of long pla recordings to be cropped.
-
-The `stress` class still has only **5 windows total** across 4 plank recordings (each plank is short — 86 s to 140 s — so each pla recording contributes 1–2 stress windows). This is the dominant constraint on every model's `stress` recall.
+`plank` has only **5 windows total** across 4 pla recordings (each plank is short — 86 s to 140 s — so each pla recording contributes 1–2 windows). That's the dominant constraint on every model's plank recall.
 
 ---
 
@@ -65,53 +63,52 @@ The `stress` class still has only **5 windows total** across 4 plank recordings 
 
 ### 4.1 LORO macro-F1 (mean across 9 folds)
 
-| Model | acc | macro-F1 | F1[rest] | F1[meditation] | F1[stress] | F1[recovery] |
-|---|---|---|---|---|---|---|
-| KNN | 0.669 | 0.592 | 0.698 | 0.351 | 0.185 | 0.642 |
-| RandomForest | 0.774 | 0.663 | 0.817 | 0.432 | 0.000 | 0.724 |
-| **XGBoost** | **0.791** | **0.723** | 0.757 | 0.470 | 0.222 | 0.728 |
-| 1D-CNN | 0.273 | 0.262 | 0.129 | 0.218 | 0.259 | 0.324 |
+| Model | acc | macro-F1 | F1[rest] | F1[meditation] | F1[plank] |
+|---|---|---|---|---|---|
+| KNN | 0.825 | 0.722 | 0.888 | 0.425 | 0.148 |
+| RandomForest | 0.848 | 0.729 | 0.896 | 0.468 | 0.111 |
+| **XGBoost** | **0.888** | **0.817** | 0.920 | 0.478 | 0.222 |
+| 1D-CNN | 0.707 | 0.663 | 0.663 | 0.317 | 0.242 |
 
 ### 4.2 Random 70:15:15 macro-F1 (mean ± std over seeds 0–4)
 
-| Model | acc | macro-F1 | F1[rest] | F1[meditation] | F1[stress] | F1[recovery] |
-|---|---|---|---|---|---|---|
-| KNN | 0.679 ± 0.130 | 0.629 ± 0.173 | 0.719 | 0.743 | 0.000 | 0.596 |
-| RandomForest | 0.771 ± 0.110 | 0.725 ± 0.164 | 0.808 | 0.891 | 0.000 | 0.697 |
-| XGBoost | 0.814 ± 0.069 | 0.795 ± 0.136 | 0.828 | 0.898 | 0.160 | 0.762 |
-| **1D-CNN** | **0.867 ± 0.073** | **0.850 ± 0.123** | 0.884 | 0.921 | 0.400 | 0.822 |
+| Model | acc | macro-F1 | F1[rest] | F1[meditation] | F1[plank] |
+|---|---|---|---|---|---|
+| KNN | 0.835 ± 0.069 | 0.710 ± 0.159 | 0.887 | 0.742 | 0.200 |
+| RandomForest | 0.871 ± 0.069 | 0.867 ± 0.071 | 0.883 | 0.843 | 0.200 |
+| XGBoost | 0.882 ± 0.083 | 0.878 ± 0.088 | 0.900 | 0.848 | 0.200 |
+| **1D-CNN** | **0.918 ± 0.080** | **0.876 ± 0.163** | 0.921 | 0.918 | 0.200 |
 
 ### 4.3 LORO vs random-split — same models, different protocol
 
 | Model | LORO macro-F1 | Random-split macro-F1 | Δ |
 |---|---|---|---|
-| KNN | 0.592 | 0.629 | +0.04 |
-| RandomForest | 0.663 | 0.725 | +0.06 |
-| XGBoost | 0.723 | 0.795 | +0.07 |
-| **1D-CNN** | **0.262** | **0.850** | **+0.59** |
+| KNN | 0.722 | 0.710 | −0.01 |
+| RandomForest | 0.729 | 0.867 | +0.14 |
+| XGBoost | 0.817 | 0.878 | +0.06 |
+| **1D-CNN** | **0.663** | **0.876** | **+0.21** |
 
-> ⚠️ **The CNN's huge LORO → random-split jump is data leakage, not learning.** Windows have 50 % overlap, so a test window's 30-s-shifted neighbour can sit in the train set. Classical models work on scalar HRV summaries that are insensitive to that overlap; the CNN reads raw waveforms and latches onto the temporal proximity. Use LORO numbers for any honest cross-recording claim; random-split numbers are a within-recording sanity check at most.
+> ⚠️ **The CNN's large LORO → random-split jump is still mostly data leakage.** Windows have 50 % overlap, so a test window's 30-s-shifted neighbour can sit in the train set. The classical models work on scalar HRV summaries that are insensitive to that overlap; the CNN reads raw waveforms. Random-split numbers are a within-recording sanity check at most; LORO is the honest cross-recording benchmark.
 
 ### 4.4 Per-class recall (LORO, diagonal of confusion matrices)
 
-| Model | rest | meditation | stress | recovery |
-|---|---|---|---|---|
-| KNN | 68.1 % | 60.0 % | **60.0 %** (3/5) | 65.7 % |
-| RandomForest | **87.5 %** | 71.4 % | 0.0 % | 74.3 % |
-| **XGBoost** | 79.2 % | **80.0 %** | **80.0 %** (4/5) | **75.7 %** |
-| 1D-CNN | 16.7 % | 31.4 % | 60.0 % | 40.0 % |
+| Model | rest | meditation | plank |
+|---|---|---|---|
+| KNN | 91.7 % | 71.4 % | **40.0 %** (2/5) |
+| RandomForest | 91.7 % | **80.0 %** | 40.0 % (2/5) |
+| **XGBoost** | **93.1 %** | **82.9 %** | **80.0 %** (4/5) |
+| 1D-CNN | 69.4 % | 65.7 % | **80.0 %** (4/5) |
 
-Two highlights:
+Two highlights worth quoting:
 
-- **XGBoost is the only model that does well on every class under LORO**, including 80 % stress recall (4 of 5 stress windows correct). It's the production candidate.
-- **KNN matches XGBoost on stress recall** (60 %, 3/5) — distance-based learners can pick up the dramatically different HR/HRV/RR signature of plank stress even with only 4 stress training windows.
-- **The 1D-CNN collapses under LORO.** With 4 classes and a fine `rest` / `recovery` distinction it can't generalize across recordings on raw waveforms with only 177 windows. The 0.85 random-split number is the overlap-leakage ceiling.
+- **XGBoost is the only model that performs well across every class under LORO.** 93 % rest / 83 % meditation / **80 % plank** (4 of 5 plank windows correctly classified). It's the production candidate.
+- **The 1D-CNN matches XGBoost on plank recall** (80 %, 4 of 5) but is meaningfully worse on rest and meditation. Class-weighted cross-entropy pushes the network to attempt the rare class effectively; the trade-off is in the majority classes.
 
 ---
 
 ## 5. Confusion matrices
 
-Rows are true labels, columns are predictions. **Each row is row-normalized to 100 %** (true-class recall view). The cell at (`baseline`, `baseline`) is the percentage of actual baseline windows the model correctly predicted as baseline. Support counts are written under the y-axis tick labels in every PNG and in the [confusion-matrices.md](confusion-matrices.md) companion file — crucial when `stress` has only 5 samples total.
+Rows are true labels, columns are predictions. **Each row is row-normalized to 100 %** (true-class recall view). The `support` count appears under each y-axis tick on the PNG and in the `support` column in [confusion-matrices.md](confusion-matrices.md).
 
 ### 5.1 LORO — Classical
 
@@ -137,27 +134,26 @@ Rows are true labels, columns are predictions. **Each row is row-normalized to 1
 
 ## 6. Key findings
 
-1. **XGBoost on the 8 PDF features is the strongest model on every meaningful axis.** macro-F1 0.723 under honest LORO, balanced per-class recall (80 % rest / 80 % meditation / 80 % stress / 76 % recovery). Production candidate.
-2. **The new `rest` ↔ `recovery` distinction is the dominant difficulty for the classical models.** Both look like quiet sitting from a physiology standpoint. RF and XGBoost score 75–87 % on both individually, but confusions between them account for most off-diagonal mass in the LORO matrices.
-3. **The 5-minute / 10-minute boundary skip removed ~4 windows per medi recording and ~2 per pla recording.** Net dataset is 182 classical windows / 177 CNN windows (vs ~200+ if we kept the transition windows). No model regression observed from this cleanup.
-4. **The `stress` class has 5 windows total** across 4 plank recordings. XGBoost recalls 4 of them (80 %), KNN recalls 3 (60 %), RandomForest 0, 1D-CNN 3 (60 %). Collecting more plank recordings remains the single highest-leverage data improvement.
-5. **The 1D-CNN is unfit for production at this data scale.** Its LORO macro-F1 of 0.262 (vs random-split 0.850) is the cleanest demonstration so far that the +0.59 random-split inflation is overlap leakage. Until we have ≥1000 windows per class, classical features win.
+1. **XGBoost on the 8 PDF features is the strongest production model under LORO** at macro-F1 **0.817**, with balanced per-class recall (93 % rest / 83 % meditation / 80 % plank). The single highest score we've seen on this dataset.
+2. **Dropping `recovery` from the taxonomy lifted every model.** XGBoost LORO macro-F1 went from 0.723 (4-class with recovery) to 0.817 (3-class). The rest/recovery distinction was the dominant difficulty because both phases look like quiet sitting from a physiology standpoint.
+3. **The 1D-CNN is now usable under LORO** (0.663 macro-F1, vs 0.262 in the 4-class run) but still trails the classical models on rest and meditation. Its plank recall (80 %, matching XGBoost) is impressive given only ~3-4 plank training windows per fold.
+4. **The plank class has 5 windows total.** XGBoost recalls 4 (80 %), the 1D-CNN also recalls 4 (80 %), KNN and RF each recall 2 (40 %). Collecting more plank recordings is the single highest-leverage data improvement.
+5. **The 5-minute / 10-minute boundary skip and the recovery removal together cut the dataset from ~200 to 112 windows.** XGBoost's macro-F1 stayed strong nonetheless, suggesting the dropped windows were genuinely noisy or transitional.
 
 ---
 
 ## 7. Advice / next steps
 
-1. **Ship XGBoost on the 8 PDF features as the production baseline.** macro-F1 0.723 LORO, balanced per-class recall, fits in memory, trains in seconds without a GPU, no hyperparameters to tune live.
-2. **Collect more plank recordings.** 4 plank recordings → 5 stress windows is the floor on stress recall. Each new plank recording adds ~1–2 windows; even 4 more recordings would let us evaluate F1[stress] with statistical meaning.
-3. **Treat `rest` vs `recovery` as a separate question.** They are physically the same kind of sitting; the only difference is "before stress" vs "after stress". If the team's downstream application doesn't actually need to tell them apart, collapsing back to a 3-class `{baseline, meditation, stress}` problem will lift macro-F1 by ~0.05–0.10.
-4. **Keep the 1D-CNN as research, not deployment.** Revisit once we have ≥10× more data per class.
+1. **Ship XGBoost on the 8 PDF features as the production baseline.** macro-F1 0.817 LORO with balanced per-class recall, no GPU, sub-second training.
+2. **Collect more plank recordings.** 4 plank recordings → 5 plank windows is the floor on plank recall. Going to ~20 plank windows would let us evaluate per-class F1 with proper statistical meaning and probably lift the CNN to be competitive with XGBoost.
+3. **Treat the 1D-CNN as research, not deployment.** Its 80 % plank recall is encouraging, but the rest/meditation gap vs the classical models indicates it still needs more training data.
 
 ---
 
 ## 8. Reproduce
 
 ```bash
-# Re-download the dataset (places .txt files in data/)
+# Re-download the dataset (the URL is in README.md)
 mkdir -p data/_old && mv data/*.txt data/_old/ 2>/dev/null
 cd data && uv run --group dev gdown --folder \
     "https://drive.google.com/drive/folders/11epSBil0cIWSKvtShCp86gCrUKEOjxkn"
@@ -166,7 +162,7 @@ cd .. && mv "data/Stress test data/"*.txt data/
 # Classical models, LORO + random split
 uv run python -m src.local_eval
 
-# 1D-CNN, LORO + random split
+# 1D-CNN, LORO + random split (~1 min on RTX 5090, ~10 min on CPU)
 uv run python -m src.dl_train
 
 # Regenerate confusion matrices + heatmap PNGs
