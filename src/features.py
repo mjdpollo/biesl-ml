@@ -25,6 +25,7 @@ from .preprocess import (
     classify_s1_s2,
     detect_br_peaks,
     detect_ecg_rpeaks,
+    detect_ecg_rpeaks_per_phase,
     detect_pcg_peaks,
     filter_br,
     filter_ecg,
@@ -218,13 +219,30 @@ def preprocess_recording(
     ecg_fs_target: float = 500.0,
     br_fs_target: float = 100.0,
     mic_fs_target: float = 2000.0,
+    *,
+    phase_aware: bool = False,
+    rpeak_method: str = "neurokit",
 ) -> Preprocessed:
-    """Resample to common grids and run the PDF's per-modality pipelines."""
+    """Resample to common grids and run the PDF's per-modality pipelines.
+
+    `phase_aware`: when True, run R-peak detection independently per protocol
+    phase (rest / stress / recovery). Isolates adaptive detector state so
+    plank-noise can't contaminate adjacent phases.
+    `rpeak_method`: forwarded to neurokit2.ecg_peaks (default pantompkins1985).
+    """
     # ECG @ 500 Hz (matches local native; gives good QRS resolution)
     ecg_t0 = float(rec.channels["ecg"][0, 0])
     ecg_u = resample_uniform(rec.channels["ecg"], ecg_fs_target).astype(np.float64)
     ecg_f = filter_ecg(ecg_u, ecg_fs_target)
-    rpeaks = detect_ecg_rpeaks(ecg_f, ecg_fs_target)
+    if phase_aware:
+        phases = phase_boundaries(rec)
+        rpeaks = detect_ecg_rpeaks_per_phase(
+            ecg_f, ecg_fs_target, ecg_t0, phases, method=rpeak_method,
+        )
+    else:
+        rpeaks = detect_ecg_rpeaks(
+            ecg_f, ecg_fs_target, polarity=rec.ecg_polarity, method=rpeak_method,
+        )
 
     # BR @ 100 Hz (≥ 4× the Cheby II stopband edge of 1 Hz, comfortable margin)
     br_t0 = float(rec.channels["br"][0, 0])

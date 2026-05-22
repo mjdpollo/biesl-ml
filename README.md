@@ -10,7 +10,8 @@ Machine-learning experiments on multimodal physiological signals captured from a
 
 The raw recordings live in this Google Drive folder (shared link, view access):
 
-> **https://drive.google.com/drive/u/0/folders/11epSBil0cIWSKvtShCp86gCrUKEOjxkn**
+for medi > **https://drive.google.com/drive/folders/12UDbV2YKf7ox5Ccxuxpk49MtxlrKPDcp**
+for plank > **https://drive.google.com/drive/folders/1cQ5k3jATUBV6Sz34C-GOnKGOOiZQFwPe**
 
 To fetch fresh into `data/`:
 
@@ -27,7 +28,7 @@ cd .. && mv "data/Stress test data/"*.txt data/
 
 Each recording is a tab-separated text file with four time-aligned channel pairs. Column **indices** are stable across the schema variants in the dataset (e.g. `time_ecg / data_ecg` vs `ads_time_2 / ads_ch2_data`); [`src/io.py`](src/io.py) reads by index, not by header name:
 
-| Channel    | Index pair | Approx. rate | Used by features.pdf for                          |
+| Channel    | Index pair | Approx. rate | Used by features.pdf for                           |
 | ---------- | ---------- | ------------ | -------------------------------------------------- |
 | Microphone | 0, 1       | ~2000 Hz     | `csi` (Shannon-energy envelope → S1/S2 ratio)      |
 | Breathing  | 2, 3       | ~500 Hz      | `rr`, `rrv` (slope-based peak detector)            |
@@ -40,9 +41,9 @@ Each channel has its own time vector — they are not row-aligned and must be re
 
 Every recording is `rest → stress → recovery`:
 
-* `rest`: 0–5 min (300 s)
-* `stress`: 5 min – (5 + stressor duration). For `medi` recordings the stressor is 5 min, ending at 10 min. For `pla` (plank) recordings the duration is parsed from the filename (e.g. `pla_1'40` = 1 min 40 s).
-* `recovery`: end of stress phase → end of file (typically ~15 min total).
+- `rest`: 0–5 min (300 s)
+- `stress`: 5 min – (5 + stressor duration). For `medi` recordings the stressor is 5 min, ending at 10 min. For `pla` (plank) recordings the duration is parsed from the filename (e.g. `pla_1'40` = 1 min 40 s).
+- `recovery`: end of stress phase → end of file (typically ~15 min total).
 
 **Boundary policy.** Per patient request, windows that touch the 5-min or 10-min protocol transitions are excluded from training and evaluation. See `src.features._window_touches_boundary`.
 
@@ -88,17 +89,17 @@ uv run python scripts/show_confusion_matrices.py > confusion-matrices.md
 
 Output JSONs land in `outputs/` (gitignored):
 
-| File                                 | Contents                                              |
-| ------------------------------------ | ----------------------------------------------------- |
-| `outputs/local_loro.json`            | classical, per-recording LORO + summary               |
-| `outputs/local_randomsplit.json`     | classical, 5-seed 70:15:15 random split + summary     |
-| `outputs/dl_local_loro.json`         | 1D-CNN, per-recording LORO + summary                  |
-| `outputs/dl_local_randomsplit.json`  | 1D-CNN, 5-seed 70:15:15 random split + summary        |
+| File                                | Contents                                          |
+| ----------------------------------- | ------------------------------------------------- |
+| `outputs/local_loro.json`           | classical, per-recording LORO + summary           |
+| `outputs/local_randomsplit.json`    | classical, 5-seed 70:15:15 random split + summary |
+| `outputs/dl_local_loro.json`        | 1D-CNN, per-recording LORO + summary              |
+| `outputs/dl_local_randomsplit.json` | 1D-CNN, 5-seed 70:15:15 random split + summary    |
 
 ## Where to look first
 
-* [`report.md`](report.md) — the teammate-facing report (tables, all 8 confusion-matrix PNGs).
-* [`confusion-matrices.md`](confusion-matrices.md) — confusion matrices as markdown tables.
-* [`src/features.py`](src/features.py) — the 8-feature implementation that matches `features.pdf`.
-* [`src/preprocess.py`](src/preprocess.py) — filters and peak detectors per the spec.
-* [`src/local_eval.py`](src/local_eval.py) / [`src/dl_train.py`](src/dl_train.py) — evaluation drivers.
+- [`report.md`](report.md) — the teammate-facing report (tables, all 8 confusion-matrix PNGs).
+- [`confusion-matrices.md`](confusion-matrices.md) — confusion matrices as markdown tables.
+- [`src/features.py`](src/features.py) — the 8-feature implementation that matches `features.pdf`.
+- [`src/preprocess.py`](src/preprocess.py) — filters and peak detectors per the spec.
+- [`src/local_eval.py`](src/local_eval.py) / [`src/dl_train.py`](src/dl_train.py) — evaluation drivers.

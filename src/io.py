@@ -16,9 +16,14 @@ CHANNEL_INDICES = {
     "temp": (6, 7),
 }
 
+# A `_posiECG` suffix in the filename flags recordings whose ECG R-peaks
+# deflect POSITIVE (instead of the default negative for this device). The
+# regex captures it as its own group so it doesn't pollute the plank token.
 FNAME_RE = re.compile(
     r"^(?P<subject>[A-Za-z]+\d*)[-_](?P<month>\d+)[-_](?P<day>\d+)[-_](?P<stressor>medi|math|pla)"
-    r"(?:[-_](?P<plank>[^\.\s\(]+))?(?:\s*\((?P<rep>\d+)\))?\.(?:csv|txt)$"
+    r"(?:[-_](?P<plank>(?!posiECG)[^\.\s\(_]+))?"
+    r"(?P<polarity>_posiECG)?"
+    r"(?:\s*\((?P<rep>\d+)\))?\.(?:csv|txt)$"
 )
 
 
@@ -31,6 +36,7 @@ class Recording:
     plank_seconds: float | None  # only for pla; parsed from filename
     rep: int | None         # for "(1)" duplicates
     channels: dict[str, np.ndarray]   # name -> (time, value) stack 2xN
+    ecg_polarity: str = "negative"   # "negative" (default) or "positive" (posiECG)
 
     @property
     def name(self) -> str:
@@ -59,7 +65,7 @@ def parse_plank_duration(token: str | None) -> float | None:
     return float(token) * 60
 
 
-def parse_filename(path: str) -> tuple[str, str, str, float | None, int | None]:
+def parse_filename(path: str) -> tuple[str, str, str, float | None, int | None, str]:
     name = os.path.basename(path)
     m = FNAME_RE.match(name)
     if not m:
@@ -69,7 +75,8 @@ def parse_filename(path: str) -> tuple[str, str, str, float | None, int | None]:
     stressor = m.group("stressor")
     plank = parse_plank_duration(m.group("plank"))
     rep = int(m.group("rep")) if m.group("rep") else None
-    return subject, date, stressor, plank, rep
+    polarity = "positive" if m.group("polarity") else "negative"
+    return subject, date, stressor, plank, rep, polarity
 
 
 def load_recording(path: str) -> Recording:
@@ -92,7 +99,7 @@ def load_recording(path: str) -> Recording:
         v = v[order]
         channels[name] = np.vstack([t, v])
 
-    subject, date, stressor, plank, rep = parse_filename(path)
+    subject, date, stressor, plank, rep, polarity = parse_filename(path)
     return Recording(
         path=path,
         subject=subject,
@@ -101,6 +108,7 @@ def load_recording(path: str) -> Recording:
         plank_seconds=plank,
         rep=rep,
         channels=channels,
+        ecg_polarity=polarity,
     )
 
 

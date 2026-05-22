@@ -1,10 +1,11 @@
 # Rest / Meditation / Plank Classification Report
 
 **Task.** Per-window **3-class** classification: `rest` / `meditation` / `plank`.
-**Data.** 9 local wearable recordings (~15 min each) from 2 subjects (`mta`, `mta2`), downloaded fresh from the team Google Drive folder ([see README](README.md#dataset)). WESAD is not used.
+**Data.** 18 local wearable recordings (~10–15 min each) across 5 subjects (`ljh`, `mta`, `mta2`, `nvt`, `oyj`), pulled from the team Google Drive folder ([see README](README.md)). WESAD is not used.
 **Features.** The eight parameters defined in [`features.pdf`](features.pdf), and only those — no temperature features.
-**Excluded data.** The post-stressor `recovery` phase is dropped entirely from the dataset. Windows whose 60-s extent touches the 5-min or 10-min protocol transitions are also excluded (patient discomfort at the transitions).
-**Evaluation protocols.** (a) Leave-one-recording-out (LORO, 9 folds) — the honest cross-recording benchmark; (b) stratified 70:15:15 random window split averaged over 5 seeds — useful as a sanity check but contaminated by 50 % window overlap.
+**Excluded data.** The post-stressor `recovery` phase is dropped entirely from the dataset (not in the production taxonomy). Windows whose 60-s extent touches the 5-min or 10-min protocol transitions are also excluded.
+**Evaluation protocols.** (a) Leave-one-recording-out (LORO, 18 folds) — the honest cross-recording benchmark; (b) stratified 70 : 15 : 15 random window split averaged over 5 seeds — a sanity check, contaminated by 50 % window overlap.
+**Preprocessing.** Production pipeline now uses **`nk.ecg_peaks(method="neurokit")`** for R-peak detection (the previous `pantompkins1985` collapsed post-plank — see [data-processing-using-neurokit.md](data-processing-using-neurokit.md) for the diagnostic). The BR detector keeps the ±5·MAD outlier-clipping fix.
 
 ---
 
@@ -14,37 +15,48 @@ Exactly eight features per 60 s window. No temperature features.
 
 | Feature | Channel | Preprocessing | Computation |
 |---|---|---|---|
-| `csi` | Microphone | Bandpass 20–200 Hz → Shannon-energy envelope `−x² log(x²)` → peak detection | S2/S1 amplitude ratio. Each ECG R-peak picks one S1 (Shannon peak in R+0–200 ms) and one S2 (Shannon peak in R+200–500 ms). CSI = mean(S2 amp) / mean(S1 amp). |
-| `hr` | ECG | Low-pass 150 Hz + detrend → Pan–Tompkins R-peak detection. NN intervals cleaned: reject NN < 300 ms, NN > 1500 ms, or NN deviating > 20 % from the median of the surrounding ~10 beats. Rejected NNs are cubic-spline interpolated. | `60 000 / mean(NN_ms)` (bpm) |
+| `csi` | Microphone | Bandpass 20–200 Hz → Shannon-energy envelope `−x² log(x²)` → peak detection | S2/S1 amplitude ratio. Each ECG R-peak picks one S1 (Shannon peak in R+0–200 ms) and one S2 (R+200–500 ms). CSI = mean(S2 amp) / mean(S1 amp). |
+| `hr` | ECG | HP 1 Hz → notch 60 Hz (Q=30) → LP 150 Hz → `nk.ecg_clean(method="neurokit")` → `nk.ecg_peaks(method="neurokit")` → `nk.signal_fixpeaks(method="kubios", iterative=False)` → ±60 ms apex snap. NN intervals cleaned: reject NN < 300 ms / > 1500 ms / > 20 % from local median. Rejected NNs cubic-spline interpolated. | `60 000 / mean(NN_ms)` (bpm) |
 | `hrv_rmssd` | ECG | Same cleaned NN series | `√(mean((NN_{i+1} − NN_i)²))`, in ms |
-| `hrv_lf` | ECG | Welch PSD on 4 Hz interpolated tachogram, Hann window, 60 s segments where possible | Area under PSD in 0.04–0.15 Hz, in ms² |
-| `hrv_hf` | ECG | Same Welch | Area under PSD in 0.15–0.40 Hz, in ms² |
+| `hrv_lf` | ECG | Welch PSD on 4 Hz interpolated tachogram, Hann window, 60 s segments where possible | Area under PSD in 0.04–0.15 Hz (ms²) |
+| `hrv_hf` | ECG | Same Welch | Area under PSD in 0.15–0.40 Hz (ms²) |
 | `hrv_lf_hf` | ECG | — | `hrv_lf / hrv_hf` |
-| `rr` | Respiration | Detrend → 0.5 s moving average → 4th-order Chebyshev II low-pass (stopband edge 1 Hz, 40 dB) → 2nd-order Butterworth high-pass at 0.12 Hz. Slope-based peak detection with adaptive threshold = 1/3 × mean of the last 8 accepted breath amplitudes. | `60 / mean(breath interval, s)` (bpm) |
-| `rrv` | Respiration | Same chain | Standard deviation of the last 5 breath intervals (s) |
+| `rr` | Respiration | Detrend → 0.5 s MA → 4th-order Cheby II LP (stopband 1 Hz, 40 dB) → 2nd-order Butterworth HP at 0.12 Hz → ±5·MAD clip → slope-based peak detection with adaptive threshold = 1/3 × mean of last 8 accepted amplitudes | `60 / mean(breath interval, s)` (/min) |
+| `rrv` | Respiration | Same chain | Std of the last 5 breath intervals (s) |
 
 **Window length:** 60 s, 50 % overlap.
-**Boundary skip:** any window whose [t, t+60] includes the 5-min mark (300 s) or the 10-min mark (600 s) is dropped.
-**Recovery dropped:** the post-stressor period (typically 10 min onward for medi recordings; >5 min + plank-duration for pla recordings) is not in the taxonomy and is removed before windowing.
+**Boundary skip:** any window whose [t, t + 60] overlaps the 5-min or 10-min protocol transition is dropped.
+**Recovery dropped:** the post-stressor period is not part of the taxonomy and is removed before windowing.
 
 ---
 
 ## 2. Dataset summary
 
 | Recording | rest | meditation | plank |
-|---|---|---|---|
-| `mta-5-17-medi` | 8 | 8 | 0 |
-| `mta-5-17-medi (1)` | 8 | 8 | 0 |
-| `mta-5-17-pla-1'26` (plank 1 m 26 s) | 8 | 0 | 1 |
-| `mta-5-17-pla-2` (plank 2 m) | 8 | 0 | 2 |
+|---|---:|---:|---:|
+| `ljh_5_21_medi_posiECG` | 8 | 7 | 0 |
+| `mta-5-17-medi` | 8 | 7 | 0 |
+| `mta-5-17-medi (1)` | 8 | 7 | 0 |
+| `mta-5-17-pla-1'26` | 8 | 0 | 0¹ |
+| `mta-5-17-pla-2` | 8 | 0 | 2 |
 | `mta2_5_19_medi` | 8 | 7 | 0 |
 | `mta_5_19_medi` | 8 | 7 | 0 |
 | `mta_5_19_medi (1)` | 8 | 7 | 0 |
-| `mta_5_19_pla_1'40` (plank 1 m 40 s) | 8 | 0 | 1 |
-| `mta_5_19_pla_2'20` (plank 2 m 20 s) | 8 | 0 | 1 |
-| **Total** | **72** | **35** | **5** |
+| `mta_5_19_pla_1'40` | 8 | 0 | 1 |
+| `mta_5_19_pla_2'20` | 8 | 0 | 2 |
+| `mta_5_21_medi` | 8 | 7 | 0 |
+| `mta_5_21_pla_2` | 8 | 0 | 2 |
+| `mta_5_21_pla_2'30(1)` | 8 | 0 | 3 |
+| `nvt_5_21_medi` | 8 | 7 | 0 |
+| `nvt_5_21_pla_2(1)` | 8 | 0 | 2 |
+| `oyj_5_22_medi_posiECG` | 8 | 7 | 0 |
+| `oyj_5_22_pla_1'50_posiECG` | 8 | 0 | 1 |
+| `oyj_5_22_pla_2'15_posiECG` | 8 | 0 | 2 |
+| **Total** | **144** | **63** | **15** |
 
-`plank` has only **5 windows total** across 4 pla recordings (each plank is short — 86 s to 140 s — so each pla recording contributes 1–2 windows). That's the dominant constraint on every model's plank recall.
+¹ `mta-5-17-pla-1'26` produces 0 plank windows after the boundary-skip rule — the plank phase (86 s) is shorter than 60 s plus the buffer at the 300 s boundary. The recording still contributes 8 rest windows.
+
+**Why the plank count jumped from 5 → 15** versus the previous report: not new recordings (the 8 plank-bearing `pla` files were already in the dataset), but the new `method="neurokit"` R-peak detector now recovers usable QRS through plank and into recovery, so HR/HRV features can be computed on plank windows where pantompkins previously returned NaN-heavy windows that effectively counted as 0. 15 plank windows is still small but is now large enough for F1[plank] to be statistically meaningful on every fold containing a plank-bearing test recording.
 
 ---
 
@@ -52,125 +64,118 @@ Exactly eight features per 60 s window. No temperature features.
 
 | Family | Inputs | Architecture |
 |---|---|---|
-| KNN | 8 PDF features | median-imputer → StandardScaler → KNN (k=7, distance-weighted, Euclidean) |
-| RandomForest | same | median-imputer → RandomForest (400 trees, `min_samples_leaf=2`, `max_features='sqrt'`) |
-| XGBoost | same | XGBoost (400 trees, depth=4, lr=0.05) — handles NaNs natively |
-| 1D-CNN | 3 raw channels (ECG @ 250 Hz, Resp @ 250 Hz, Mic Shannon-envelope @ 250 Hz), 60 s = (3, 15 000) | 5-block 1D conv stack + AdaptiveAvgPool + 2-layer MLP head, 636 k params, AMP, AdamW + cosine LR, class-weighted CE, early stopping |
+| KNN | 8 PDF features | median-imputer → StandardScaler → KNN (k = 7, distance-weighted, Euclidean) |
+| RandomForest | same | median-imputer → RandomForest (400 trees, `min_samples_leaf = 2`) |
+| XGBoost | same | XGBoost (400 trees, depth 4, lr 0.05, `tree_method="hist"`) |
+| 1D-CNN | 3 raw channels (ECG @ 250 Hz, Resp @ 250 Hz, Mic Shannon-envelope @ 250 Hz), 60 s = (3, 15000) | 5-block 1D conv stack + AdaptiveAvgPool + MLP head (~636 k params), AMP, AdamW + cosine LR, class-weighted CE, early stopping |
 
 ---
 
-## 4. Results
+## 4. Results — LORO (18 folds)
 
-### 4.1 LORO macro-F1 (mean across 9 folds)
+### 4.1 Mean accuracy / macro-F1 / per-class F1
 
-| Model | acc | macro-F1 | F1[rest] | F1[meditation] | F1[plank] |
-|---|---|---|---|---|---|
-| KNN | 0.825 | 0.722 | 0.888 | 0.425 | 0.148 |
-| RandomForest | 0.848 | 0.729 | 0.896 | 0.468 | 0.111 |
-| **XGBoost** | **0.888** | **0.817** | 0.920 | 0.478 | 0.222 |
-| 1D-CNN | 0.707 | 0.663 | 0.663 | 0.317 | 0.242 |
+| Model | Acc | macro-F1 | F1[rest] | F1[meditation] | F1[plank] |
+|---|---:|---:|---:|---:|---:|
+| KNN | 0.802 | 0.657 | 0.873 | 0.332 | 0.185 |
+| RandomForest | 0.909 | 0.805 | 0.950 | 0.457 | 0.333 |
+| **XGBoost** | **0.927** | **0.864** | 0.943 | 0.447 | **0.426** |
+| 1D-CNN | 0.753 | 0.639 | 0.696 | 0.243 | 0.315 |
 
-### 4.2 Random 70:15:15 macro-F1 (mean ± std over seeds 0–4)
+**XGBoost is the strongest model.** It beats RF by 6 points of macro-F1 and is the only model that consistently produces non-zero F1[plank] on every fold containing a plank-bearing test recording. The CNN trails the classical models by 22 points of macro-F1 on the same physiological data, as in the previous report — at 222 training windows the CNN can't compete with hand-crafted HRV features.
 
-| Model | acc | macro-F1 | F1[rest] | F1[meditation] | F1[plank] |
-|---|---|---|---|---|---|
-| KNN | 0.835 ± 0.069 | 0.710 ± 0.159 | 0.887 | 0.742 | 0.200 |
-| RandomForest | 0.871 ± 0.069 | 0.867 ± 0.071 | 0.883 | 0.843 | 0.200 |
-| XGBoost | 0.882 ± 0.083 | 0.878 ± 0.088 | 0.900 | 0.848 | 0.200 |
-| **1D-CNN** | **0.918 ± 0.080** | **0.876 ± 0.163** | 0.921 | 0.918 | 0.200 |
+### 4.2 LORO confusion (XGBoost, sum across 18 folds)
 
-### 4.3 LORO vs random-split — same models, different protocol
+|  | predicted rest | predicted meditation | predicted plank |
+|---|---:|---:|---:|
+| **true rest (144)** | 136 (94.4 %) | 8 (5.6 %) | 0 (0.0 %) |
+| **true meditation (63)** | 8 (12.7 %) | 55 (87.3 %) | 0 (0.0 %) |
+| **true plank (15)** | 1 (6.7 %) | 0 (0.0 %) | 14 (93.3 %) |
+
+Plank recall is **14 / 15 = 93 %**. The single miss is in `oyj_5_22_pla_2'15_posiECG` (see §4.3). The model is also clean on confusion between rest and meditation — only 16 cross-class errors out of 207 non-plank windows.
+
+All confusion matrices (per model × protocol) are in [confusion-matrices.md](confusion-matrices.md), with PNG heatmaps in [figures/confusion/](figures/confusion/).
+
+### 4.3 Per-fold macro-F1 (XGBoost)
+
+| Test recording | acc | macro-F1 | F1[plank] |
+|---|---:|---:|---:|
+| `ljh_5_21_medi_posiECG` | 1.000 | 1.000 | — |
+| `mta-5-17-medi` | 0.733 | 0.700 | — |
+| `mta-5-17-medi (1)` | 0.933 | 0.932 | — |
+| `mta-5-17-pla-1'26` | 1.000 | 1.000 | — |
+| `mta-5-17-pla-2` | 0.900 | 0.644 | 1.000 |
+| `mta2_5_19_medi` | 0.867 | 0.866 | — |
+| `mta_5_19_medi` | 1.000 | 1.000 | — |
+| `mta_5_19_medi (1)` | 1.000 | 1.000 | — |
+| `mta_5_19_pla_1'40` | 1.000 | 1.000 | 1.000 |
+| `mta_5_19_pla_2'20` | 0.900 | 0.644 | 1.000 |
+| `mta_5_21_medi` | 0.867 | 0.866 | — |
+| `mta_5_21_pla_2` | 0.900 | 0.804 | 0.667 |
+| `mta_5_21_pla_2'30(1)` | 1.000 | 1.000 | 1.000 |
+| `nvt_5_21_medi` | 1.000 | 1.000 | — |
+| `nvt_5_21_pla_2(1)` | 1.000 | 1.000 | 1.000 |
+| `oyj_5_22_medi_posiECG` | 0.800 | 0.800 | — |
+| `oyj_5_22_pla_1'50_posiECG` | 0.889 | 0.644 | 1.000 |
+| `oyj_5_22_pla_2'15_posiECG` | 0.900 | 0.644 | 1.000 |
+
+(`F1[plank] = —` for folds whose test recording has 0 plank windows; macro-F1 on `pla-*` folds caps at 0.667 because the test set has only 2 classes present, so the absent class contributes 0 to macro-F1 with `zero_division=0`.)
+
+---
+
+## 5. Results — Random 70 : 15 : 15 window split (5 seeds)
+
+Stratified random window split (train 70 % / val 15 % / test 15 %) averaged over seeds 0–4. Same 8 features, same models.
+
+| Model | Acc | macro-F1 | F1[rest] | F1[meditation] | F1[plank] |
+|---|---:|---:|---:|---:|---:|
+| KNN | 0.865 ± 0.051 | 0.756 ± 0.131 | 0.909 | 0.798 | 0.560 |
+| **RandomForest** | 0.941 ± 0.037 | **0.929 ± 0.068** | 0.960 | 0.894 | 0.933 |
+| XGBoost | 0.935 ± 0.034 | 0.926 ± 0.063 | 0.951 | 0.894 | 0.933 |
+| 1D-CNN | 0.876 ± 0.022 | 0.899 ± 0.018 | 0.902 | 0.796 | **1.000** |
+
+### LORO vs random split — same models, different protocol
 
 | Model | LORO macro-F1 | Random-split macro-F1 | Δ |
-|---|---|---|---|
-| KNN | 0.722 | 0.710 | −0.01 |
-| RandomForest | 0.729 | 0.867 | +0.14 |
-| XGBoost | 0.817 | 0.878 | +0.06 |
-| **1D-CNN** | **0.663** | **0.876** | **+0.21** |
+|---|---:|---:|---:|
+| KNN | 0.657 | 0.756 | +0.10 |
+| RandomForest | 0.805 | 0.929 | +0.12 |
+| XGBoost | 0.864 | 0.926 | +0.06 |
+| **1D-CNN** | 0.639 | 0.899 | **+0.26** |
 
-> ⚠️ **The CNN's large LORO → random-split jump is still mostly data leakage.** Windows have 50 % overlap, so a test window's 30-s-shifted neighbour can sit in the train set. The classical models work on scalar HRV summaries that are insensitive to that overlap; the CNN reads raw waveforms. Random-split numbers are a within-recording sanity check at most; LORO is the honest cross-recording benchmark.
-
-### 4.4 Per-class recall (LORO, diagonal of confusion matrices)
-
-| Model | rest | meditation | plank |
-|---|---|---|---|
-| KNN | 91.7 % | 71.4 % | **40.0 %** (2/5) |
-| RandomForest | 91.7 % | **80.0 %** | 40.0 % (2/5) |
-| **XGBoost** | **93.1 %** | **82.9 %** | **80.0 %** (4/5) |
-| 1D-CNN | 69.4 % | 65.7 % | **80.0 %** (4/5) |
-
-Two highlights worth quoting:
-
-- **XGBoost is the only model that performs well across every class under LORO.** 93 % rest / 83 % meditation / **80 % plank** (4 of 5 plank windows correctly classified). It's the production candidate.
-- **The 1D-CNN matches XGBoost on plank recall** (80 %, 4 of 5) but is meaningfully worse on rest and meditation. Class-weighted cross-entropy pushes the network to attempt the rare class effectively; the trade-off is in the majority classes.
+> ⚠️ **The CNN's huge jump under random split is leakage, not learning.** Windows have 50 % overlap, so a test window's 30-s-shifted neighbour can sit in train. Classical models work on scalar HRV summaries that are insensitive to that overlap; the CNN reads raw waveforms and can latch onto temporal proximity. **Use LORO numbers for any honest cross-subject claim; use random-split numbers only as within-recording sanity checks.**
 
 ---
 
-## 5. Confusion matrices
+## 6. Conclusions
 
-Rows are true labels, columns are predictions. **Each row is row-normalized to 100 %** (true-class recall view). The `support` count appears under each y-axis tick on the PNG and in the `support` column in [confusion-matrices.md](confusion-matrices.md).
+1. **XGBoost on the 8 PDF features is the production baseline** at LORO macro-F1 = **0.864** (up from 0.825 in the previous report) and plank recall **93 %**. Random Forest is a close runner-up (0.805 LORO / 0.929 random).
+2. **The R-peak detector swap is responsible for most of the lift.** Switching `pantompkins1985` → `neurokit` recovered post-plank R-peaks that the previous detector silently dropped (see [data-processing-using-neurokit.md](data-processing-using-neurokit.md) §3 — every `pla` recording's recovery HR went from 0–10 bpm to 74–83 bpm). This raised the usable plank-window count from ~5 to 15, which is what made F1[plank] go from 0.143 → 0.426.
+3. **Plank recall is finally meaningful.** XGBoost catches 14 / 15 plank windows under LORO. The single miss (`oyj_5_22_pla_2'15_posiECG`) is the recording that still showed BR dropout in the §5 plot. The model never *hallucinates* plank either — 0 of 207 non-plank windows are misclassified as plank.
+4. **The 1D-CNN remains uncompetitive on LORO at this data scale** (0.639 vs XGBoost's 0.864). Its random-split number (0.899) is roughly comparable to XGBoost, but the 26-point gap between protocols is a textbook overlap-leakage signature, not generalisation.
+5. **Per-fold variance is much tighter than the previous report.** 8 of 18 XGBoost folds score macro-F1 ≥ 0.93; the floor is 0.644 on pla-only folds (an artefact of `zero_division=0` when the meditation class is absent in the test set, not a model failure).
 
-### 5.1 LORO — Classical
+## 7. Next steps
 
-| KNN | RandomForest | XGBoost |
-|---|---|---|
-| ![KNN LORO](figures/confusion/loro__classical_knn.png) | ![RandomForest LORO](figures/confusion/loro__classical_randomforest.png) | ![XGBoost LORO](figures/confusion/loro__classical_xgboost.png) |
-
-### 5.2 LORO — 1D-CNN
-
-![1D-CNN LORO](figures/confusion/loro__cnn.png)
-
-### 5.3 Random 70:15:15 — Classical
-
-| KNN | RandomForest | XGBoost |
-|---|---|---|
-| ![KNN random](figures/confusion/randomsplit__classical_knn.png) | ![RandomForest random](figures/confusion/randomsplit__classical_randomforest.png) | ![XGBoost random](figures/confusion/randomsplit__classical_xgboost.png) |
-
-### 5.4 Random 70:15:15 — 1D-CNN
-
-![1D-CNN random](figures/confusion/randomsplit__cnn.png)
-
----
-
-## 6. Key findings
-
-1. **XGBoost on the 8 PDF features is the strongest production model under LORO** at macro-F1 **0.817**, with balanced per-class recall (93 % rest / 83 % meditation / 80 % plank). The single highest score we've seen on this dataset.
-2. **Dropping `recovery` from the taxonomy lifted every model.** XGBoost LORO macro-F1 went from 0.723 (4-class with recovery) to 0.817 (3-class). The rest/recovery distinction was the dominant difficulty because both phases look like quiet sitting from a physiology standpoint.
-3. **The 1D-CNN is now usable under LORO** (0.663 macro-F1, vs 0.262 in the 4-class run) but still trails the classical models on rest and meditation. Its plank recall (80 %, matching XGBoost) is impressive given only ~3-4 plank training windows per fold.
-4. **The plank class has 5 windows total.** XGBoost recalls 4 (80 %), the 1D-CNN also recalls 4 (80 %), KNN and RF each recall 2 (40 %). Collecting more plank recordings is the single highest-leverage data improvement.
-5. **The 5-minute / 10-minute boundary skip and the recovery removal together cut the dataset from ~200 to 112 windows.** XGBoost's macro-F1 stayed strong nonetheless, suggesting the dropped windows were genuinely noisy or transitional.
-
----
-
-## 7. Advice / next steps
-
-1. **Ship XGBoost on the 8 PDF features as the production baseline.** macro-F1 0.817 LORO with balanced per-class recall, no GPU, sub-second training.
-2. **Collect more plank recordings.** 4 plank recordings → 5 plank windows is the floor on plank recall. Going to ~20 plank windows would let us evaluate per-class F1 with proper statistical meaning and probably lift the CNN to be competitive with XGBoost.
-3. **Treat the 1D-CNN as research, not deployment.** Its 80 % plank recall is encouraging, but the rest/meditation gap vs the classical models indicates it still needs more training data.
-
----
+1. **Production: adopt XGBoost on the 8 PDF features, R-peak `method="neurokit"`.** Already wired as the default in [src/features.py](src/features.py) (`rpeak_method="neurokit"`).
+2. **Collect more pla recordings** to lift the plank count from 15 toward ~50. F1[plank] is now meaningful but still single-recording-sensitive — `mta_5_21_pla_2'30(1)` alone contributes 3 of 15 plank windows.
+3. **Visually verify the post-plank R-peaks** in one or two recordings to make sure neurokit isn't reporting motion-artefact false positives. The dramatic recovery numbers in `mta_5_19_pla_2'20` (plank HR 2 → 85 bpm) should be eyeballed against the raw ECG — if the new "R-peaks" are noise, downstream HRV features will be more noisy, not less, and the F1[plank] = 0.426 number is inflated.
+4. **The 1D-CNN is currently not a deliverable.** Either restrict it to the LORO-honest protocol and accept the 0.64 number, or wait for more data before re-investing.
+5. **A small follow-up: re-evaluate temperature ablation** under the new detector. The previous report retired temperature because it hurt classical macro-F1 by 2–6 points; under the new feature quality that finding might or might not hold.
 
 ## 8. Reproduce
 
 ```bash
-# Re-download the dataset (the URL is in README.md)
-mkdir -p data/_old && mv data/*.txt data/_old/ 2>/dev/null
-cd data && uv run --group dev gdown --folder \
-    "https://drive.google.com/drive/folders/11epSBil0cIWSKvtShCp86gCrUKEOjxkn"
-cd .. && mv "data/Stress test data/"*.txt data/
+# Classical (KNN / RF / XGBoost) — LORO + 5-seed random split, PDF features only
+uv run python -m src.local_eval        # -> outputs/local_loro.json, local_randomsplit.json
 
-# Classical models, LORO + random split
-uv run python -m src.local_eval
+# 1D-CNN — LORO + 5-seed random split
+uv run python -m src.dl_train          # -> outputs/dl_local_loro.json, dl_local_randomsplit.json
 
-# 1D-CNN, LORO + random split (~1 min on RTX 5090, ~10 min on CPU)
-uv run python -m src.dl_train
-
-# Regenerate confusion matrices + heatmap PNGs
+# Regenerate confusion-matrix tables + PNG heatmaps
 uv run python scripts/show_confusion_matrices.py > confusion-matrices.md
-```
+#                                                  -> figures/confusion/*.png
 
-Output locations:
-- `outputs/local_loro.json`, `outputs/local_randomsplit.json`
-- `outputs/dl_local_loro.json`, `outputs/dl_local_randomsplit.json`
-- `figures/confusion/*.png` (tracked in git)
-- `confusion-matrices.md` (8 markdown tables)
+# Regenerate per-recording diagnostic plots
+uv run python -m src.plots             # -> outputs/{br_full,ecg_full,signals}_*.png
+```

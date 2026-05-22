@@ -23,18 +23,24 @@ from scipy.interpolate import CubicSpline
 
 # ---- ECG --------------------------------------------------------------------
 
-def filter_ecg(x: np.ndarray, fs: float, mains: float | None = None) -> np.ndarray:
-    """Low-pass 150 Hz (or Nyquist - margin, whichever is lower) + detrend.
+def filter_ecg(x: np.ndarray, fs: float, mains: float | None = 60.0) -> np.ndarray:
+    """HP 1 Hz -> notch `mains` Hz (Q=30) -> LP 150 Hz. Zero-phase (sosfiltfilt).
 
-    `mains` is accepted for backward-compatibility but ignored — the PDF spec
-    does not include a notch filter. Pan-Tompkins later handles mains noise
-    via its own 5-15 Hz prefilter.
+    HP removes baseline wander; notch removes mains interference (default 60 Hz
+    for local Korean recordings, pass mains=50.0 for WESAD/EU); LP caps wideband
+    noise. All sections chained in SOS form for numerical stability.
     """
     nyq = 0.5 * fs
+    sos_hp = signal.butter(4, 1.0, btype="high", fs=fs, output="sos")
+    y = signal.sosfiltfilt(sos_hp, x)
+    if mains and mains > 0 and mains < nyq:
+        b, a = signal.iirnotch(w0=mains, Q=30.0, fs=fs)
+        sos_notch = signal.tf2sos(b, a)
+        y = signal.sosfiltfilt(sos_notch, y)
     cutoff = min(150.0, nyq * 0.95)
-    sos = signal.butter(4, cutoff, btype="low", fs=fs, output="sos")
-    y = signal.sosfiltfilt(sos, x)
-    return y - np.median(y)
+    sos_lp = signal.butter(4, cutoff, btype="low", fs=fs, output="sos")
+    y = signal.sosfiltfilt(sos_lp, y)
+    return y
 
 
 def filter_ecg_for_qrs(x: np.ndarray, fs: float) -> np.ndarray:
@@ -43,30 +49,45 @@ def filter_ecg_for_qrs(x: np.ndarray, fs: float) -> np.ndarray:
     return signal.sosfiltfilt(sos, x)
 
 
-def detect_ecg_rpeaks(ecg: np.ndarray, fs: float) -> np.ndarray:
-    """Pan-Tompkins R-peak detection.
+def detect_ecg_rpeaks(ecg: np.ndarray, fs: float,
+                      polarity: str = "negative",
+                      method: str = "pantompkins1985") -> np.ndarray:
+    """R-peak detection — ORIGINAL negative-polarity algorithm.
 
-    Assumes the local device's polarity (R-peaks deflect NEGATIVE in the
-    filtered signal). Callers with WESAD's positive-polarity ECG should pass
-    `-ecg`.
+    Assumes the device's R-peaks deflect NEGATIVE: the signal is flipped
+    before detection so R-peaks appear as upward maxima for the detector.
+    Detected indices are then snapped to the local maximum of the flipped
+    signal within ±60 ms (Pan-Tompkins reports peak indices at the end of
+    its 150 ms integration window, which lags the true apex).
+
+    `polarity` is accepted for API compatibility but **NOT honoured here**:
+    this function applies the negative-polarity pipeline to every signal so
+    you can directly compare against `posiECG` recordings (which will look
+    visibly broken — that is the diagnostic).
+
+    `method` is forwarded to `neurokit2.ecg_peaks(method=...)`. The default
+    "pantompkins1985" matches the historical chain; "neurokit" is the
+    library's own default (more robust on noisy short-window data).
     """
     import neurokit2 as nk
+    del polarity  # intentionally ignored — always run negative-polarity pipeline
 
     flipped = -ecg
     cleaned = nk.ecg_clean(flipped, sampling_rate=fs, method="neurokit")
-    _, info = nk.ecg_peaks(cleaned, sampling_rate=fs, method="pantompkins1985")
+    _, info = nk.ecg_peaks(cleaned, sampling_rate=fs, method=method)
     peaks = np.asarray(info["ECG_R_Peaks"], dtype=int)
     if len(peaks) > 3:
+        # iterative=False: kubios's iterative mode recomputes outlier thresholds
+        # over the *whole* recording, which gets poisoned by plank-phase motion
+        # artefact and then wrongly discards legitimate post-plank R-peaks.
         _, info2 = nk.signal_fixpeaks(peaks, sampling_rate=fs, method="kubios",
-                                      iterative=True)
+                                      iterative=False)
         if isinstance(info2, dict):
             peaks = np.asarray(info2.get("clean", peaks), dtype=int)
         else:
             peaks = np.asarray(info2, dtype=int)
 
     # Snap to the local maximum of the flipped signal (~true R-wave apex).
-    # Pan-Tompkins reports indices at the end of its integration window;
-    # ±60 ms covers the lag.
     half = int(round(0.060 * fs))
     snapped: list[int] = []
     n = len(flipped)
@@ -75,6 +96,42 @@ def detect_ecg_rpeaks(ecg: np.ndarray, fs: float) -> np.ndarray:
         hi = min(n, p + half + 1)
         snapped.append(lo + int(np.argmax(flipped[lo:hi])))
     return np.asarray(snapped, dtype=int)
+
+
+def detect_ecg_rpeaks_per_phase(
+    ecg: np.ndarray, fs: float, t0: float,
+    phases: dict[str, tuple[float, float]],
+    *,
+    method: str = "pantompkins1985",
+) -> np.ndarray:
+    """Phase-aware R-peak detection.
+
+    Slice the ECG by absolute-time `phases` dict (`{name: (t_start, t_end)}`),
+    run `detect_ecg_rpeaks` independently on each slice, offset the indices
+    back into the whole-signal frame, and concatenate. This isolates each
+    phase's detector state (`ecg_clean` adaptive baseline + Pan-Tompkins
+    adaptive threshold + kubios outlier stats) so high-noise phases (e.g.
+    plank) cannot poison detection in adjacent phases (e.g. recovery).
+
+    Returns a sorted, de-duplicated array of R-peak indices into `ecg`.
+    """
+    n = len(ecg)
+    out: list[int] = []
+    seen: set[int] = set()
+    for _, (s, e) in phases.items():
+        i_lo = max(0, int(round((s - t0) * fs)))
+        i_hi = min(n, int(round((e - t0) * fs)))
+        if i_hi - i_lo < int(round(2.0 * fs)):  # < 2 s — skip
+            continue
+        sub = ecg[i_lo:i_hi]
+        sub_peaks = detect_ecg_rpeaks(sub, fs, method=method)
+        for p in sub_peaks:
+            idx = int(p + i_lo)
+            if 0 <= idx < n and idx not in seen:
+                seen.add(idx)
+                out.append(idx)
+    out.sort()
+    return np.asarray(out, dtype=int)
 
 
 def clean_nn_intervals(
@@ -154,7 +211,8 @@ def filter_br(x: np.ndarray, fs: float) -> np.ndarray:
     return x
 
 
-def detect_br_peaks(br: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
+def detect_br_peaks(br: np.ndarray, fs: float,
+                    clip_mad: float = 5.0) -> tuple[np.ndarray, np.ndarray]:
     """BR peak detector following features.pdf steps 4-5.
 
     Implementation note: the PDF specifies a 250 ms minimum rising/falling
@@ -166,11 +224,26 @@ def detect_br_peaks(br: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
     adaptive 1/3 × mean-of-last-eight-amplitudes threshold on AC = peak
     height above the V1-V2 baseline midline.
 
+    Robustness fix: before peak finding we clip the signal to ±clip_mad·MAD
+    (median absolute deviation, scaled by 1.4826 to match σ for Gaussian
+    data). Without this, a single motion-artefact transient at a phase
+    boundary becomes the first accepted peak, sets the adaptive threshold to
+    ~10⁵, and rejects every subsequent real breath. Setting clip_mad=0
+    disables clipping.
+
     Returns (peak_indices, peak_amplitudes).
     """
     n = len(br)
     if n < int(fs * 2):
         return np.array([], dtype=int), np.array([], dtype=float)
+
+    if clip_mad > 0:
+        med = float(np.median(br))
+        mad = float(np.median(np.abs(br - med)))
+        sigma_robust = 1.4826 * mad
+        if sigma_robust > 1e-12:
+            limit = clip_mad * sigma_robust
+            br = np.clip(br, med - limit, med + limit)
 
     min_dist = max(int(round(fs * 1.5)), 1)
     cand, _ = signal.find_peaks(br, distance=min_dist)
