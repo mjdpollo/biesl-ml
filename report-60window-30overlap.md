@@ -147,35 +147,19 @@ Stratified random window split (train 70 % / val 15 % / test 15 %) averaged over
 
 ---
 
-## 6. Conclusions
+## 6. Cross-experiment conclusions and next steps
 
-1. **XGBoost on the 8 PDF features is the production baseline** at LORO macro-F1 = **0.864** (up from 0.825 in the previous report) and plank recall **93 %**. Random Forest is a close runner-up (0.805 LORO / 0.929 random).
-2. **The R-peak detector swap is responsible for most of the lift.** Switching `pantompkins1985` → `neurokit` recovered post-plank R-peaks that the previous detector silently dropped (see [data-processing-using-neurokit.md](data-processing-using-neurokit.md) §3 — every `pla` recording's recovery HR went from 0–10 bpm to 74–83 bpm). This raised the usable plank-window count from ~5 to 15, which is what made F1[plank] go from 0.143 → 0.426.
-3. **Plank recall is finally meaningful.** XGBoost catches 14 / 15 plank windows under LORO. The single miss (`oyj_5_22_pla_2'15_posiECG`) is the recording that still showed BR dropout in the §5 plot. The model never *hallucinates* plank either — 0 of 207 non-plank windows are misclassified as plank.
-4. **The 1D-CNN remains uncompetitive on LORO at this data scale** (0.639 vs XGBoost's 0.864). Its random-split number (0.899) is roughly comparable to XGBoost, but the 26-point gap between protocols is a textbook overlap-leakage signature, not generalisation.
-5. **Per-fold variance is much tighter than the previous report.** 8 of 18 XGBoost folds score macro-F1 ≥ 0.93; the floor is 0.644 on pla-only folds (an artefact of `zero_division=0` when the meditation class is absent in the test set, not a model failure).
+Synthesis across this report and its [40 s / 20 s](report-40window-20overlap.md) and [30 s / 15 s](report-30window-15overlap.md) siblings — including the production recommendation, plank-data caveats, and follow-up work — lives in **[conclusion.md](conclusion.md)**.
 
-## 7. Next steps
-
-1. **Production: adopt XGBoost on the 8 PDF features, R-peak `method="neurokit"`.** Already wired as the default in [src/features.py](src/features.py) (`rpeak_method="neurokit"`).
-2. **Collect more pla recordings** to lift the plank count from 15 toward ~50. F1[plank] is now meaningful but still single-recording-sensitive — `mta_5_21_pla_2'30(1)` alone contributes 3 of 15 plank windows.
-3. **Visually verify the post-plank R-peaks** in one or two recordings to make sure neurokit isn't reporting motion-artefact false positives. The dramatic recovery numbers in `mta_5_19_pla_2'20` (plank HR 2 → 85 bpm) should be eyeballed against the raw ECG — if the new "R-peaks" are noise, downstream HRV features will be more noisy, not less, and the F1[plank] = 0.426 number is inflated.
-4. **The 1D-CNN is currently not a deliverable.** Either restrict it to the LORO-honest protocol and accept the 0.64 number, or wait for more data before re-investing.
-5. **A small follow-up: re-evaluate temperature ablation** under the new detector. The previous report retired temperature because it hurt classical macro-F1 by 2–6 points; under the new feature quality that finding might or might not hold.
-
-## 8. Reproduce
+## 7. Reproduce
 
 ```bash
-# Classical (KNN / RF / XGBoost) — LORO + 5-seed random split, PDF features only
+# 60 s window / 30 s overlap is the current default. To run the classical and CNN
+# pipelines and regenerate the four JSONs cited above:
 uv run python -m src.local_eval        # -> outputs/local_loro.json, local_randomsplit.json
-
-# 1D-CNN — LORO + 5-seed random split
 uv run python -m src.dl_train          # -> outputs/dl_local_loro.json, dl_local_randomsplit.json
 
-# Regenerate confusion-matrix tables + PNG heatmaps
+# Confusion-matrix tables + PNG heatmaps
 uv run python scripts/show_confusion_matrices.py > confusion-matrices.md
 #                                                  -> figures/confusion/*.png
-
-# Regenerate per-recording diagnostic plots
-uv run python -m src.plots             # -> outputs/{br_full,ecg_full,signals}_*.png
 ```

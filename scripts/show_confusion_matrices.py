@@ -31,8 +31,16 @@ import matplotlib.pyplot as plt   # noqa: E402
 from src.pipeline import PHASE_CLASSES   # noqa: E402
 
 
-OUT = Path("outputs")
-FIG_DIR = Path("figures") / "confusion"
+import argparse
+
+_parser = argparse.ArgumentParser(description=__doc__)
+_parser.add_argument("--inputs-dir", default="outputs",
+                     help="dir containing the four JSON files (default: outputs)")
+_parser.add_argument("--figures-dir", default="figures/confusion",
+                     help="dir for output PNGs (default: figures/confusion)")
+_args, _ = _parser.parse_known_args()
+OUT = Path(_args.inputs_dir)
+FIG_DIR = Path(_args.figures_dir)
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
