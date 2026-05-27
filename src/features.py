@@ -34,7 +34,9 @@ from .preprocess import (
 )
 
 
-WINDOW_S = 60.0           # ≥1 min, required by HRV LF/HF Welch step
+WINDOW_S = 40.0           # per request; below the 60 s the HRV LF/HF Welch
+                          # step ideally wants — LF resolution is coarser at
+                          # 40 s, so treat hrv_lf / hrv_lf_hf as approximate.
 OVERLAP = 0.5
 
 FEATURE_NAMES = (

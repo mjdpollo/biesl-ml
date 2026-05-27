@@ -96,6 +96,7 @@ def train_one_fold(
     X_val: np.ndarray, y_val: np.ndarray,
     *,
     in_channels: int,
+    n_classes: int = len(PHASE_CLASSES),
     lr: float = 1e-3,
     weight_decay: float = 1e-4,
     epochs: int = EPOCHS,
@@ -103,8 +104,8 @@ def train_one_fold(
     batch_size: int = BATCH_SIZE,
     augment: bool = True,
 ) -> tuple[BiosignalCNN1D, dict]:
-    model = BiosignalCNN1D(in_channels=in_channels, n_classes=len(PHASE_CLASSES)).to(DEVICE)
-    weights = _class_weights(y_train, n_classes=len(PHASE_CLASSES))
+    model = BiosignalCNN1D(in_channels=in_channels, n_classes=n_classes).to(DEVICE)
+    weights = _class_weights(y_train, n_classes=n_classes)
     criterion = nn.CrossEntropyLoss(weight=weights)
     optim = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=epochs)
