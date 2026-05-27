@@ -8,21 +8,31 @@ Machine-learning experiments on multimodal physiological signals captured from a
 
 ## Dataset
 
-The raw recordings live in this Google Drive folder (shared link, view access):
+The raw recordings live in three Google Drive folders, one per stressor type (shared links, view access):
 
-for medi > **https://drive.google.com/drive/folders/12UDbV2YKf7ox5Ccxuxpk49MtxlrKPDcp**
-for plank > **https://drive.google.com/drive/folders/1cQ5k3jATUBV6Sz34C-GOnKGOOiZQFwPe**
+| Stressor | Google Drive folder |
+|---|---|
+| medi  | https://drive.google.com/drive/folders/12UDbV2YKf7ox5Ccxuxpk49MtxlrKPDcp |
+| plank | https://drive.google.com/drive/folders/1cQ5k3jATUBV6Sz34C-GOnKGOOiZQFwPe |
+| math  | https://drive.google.com/drive/folders/1LYBvZgsehhhe6M0W0jyD2-rxRrBTRhYE |
 
-To fetch fresh into `data/`:
+To fetch fresh into `data/` (move old aside, download all three, flatten):
 
 ```bash
 mkdir -p data/_old && mv data/*.txt data/_old/ 2>/dev/null
-cd data && uv run --group dev gdown --folder \
-    "https://drive.google.com/drive/folders/11epSBil0cIWSKvtShCp86gCrUKEOjxkn"
-cd .. && mv "data/Stress test data/"*.txt data/
+mkdir -p data/_dl && cd data/_dl
+for id in 12UDbV2YKf7ox5Ccxuxpk49MtxlrKPDcp \
+          1cQ5k3jATUBV6Sz34C-GOnKGOOiZQFwPe \
+          1LYBvZgsehhhe6M0W0jyD2-rxRrBTRhYE; do
+    uv run --group dev gdown --folder "https://drive.google.com/drive/folders/$id"
+done
+cd .. && mv _dl/*/*.txt . && rm -rf _dl
 ```
 
-`data/` is gitignored. The folder currently contains 9 `*.txt` recordings (`mta`, `mta2` subjects, sessions 5-17 and 5-19) plus an `AAA read me.docx` (renamed to `README_dataset.docx` on disk).
+`data/` is gitignored. It currently holds **31 `*.txt` recordings** across 7 subjects
+(`mta`, `mta2`, `nvt`, `ntv`, `nva`, `oyj`, `smj`) and three stressors. Filenames ending in
+`_posiECG` flag recordings whose ECG R-peaks deflect **positive** (the default device is negative);
+`src/io.py` parses this into `Recording.ecg_polarity`.
 
 ### Signal channels (per recording)
 

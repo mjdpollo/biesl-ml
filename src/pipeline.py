@@ -36,7 +36,7 @@ warnings.filterwarnings("ignore")  # filterwarnings handled per-window
 DATA_DIR = "data"
 OUT_DIR = "outputs"
 
-PHASE_CLASSES = ["rest", "meditation", "plank"]
+PHASE_CLASSES = ["rest", "meditation", "plank", "math"]
 
 
 def assign_activity(phase: str, stressor: str) -> str:

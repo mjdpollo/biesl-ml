@@ -189,30 +189,50 @@ def clean_nn_intervals(
 
 # ---- BR (respiration) ------------------------------------------------------
 
-def filter_br(x: np.ndarray, fs: float) -> np.ndarray:
-    """BR filter chain per features.pdf step 6:
+# Default median-filter window sizes (seconds). Both are adaptable — pass
+# different values to filter_br() to retune for slower/faster breathing.
+BR_BASELINE_WINDOW_S = 8.0     # long median → slow-drift baseline (subtracted)
+BR_SMOOTH_WINDOW_S = 0.5       # short median → despike / smooth
 
-    detrend -> 0.5 s moving average -> 4th-order Cheby II LP (stopband edge
-    1 Hz, 40 dB attenuation) -> 2nd-order Butterworth HP at 0.12 Hz.
+
+def filter_br(
+    x: np.ndarray, fs: float,
+    *,
+    smooth_window_s: float = BR_SMOOTH_WINDOW_S,
+    baseline_window_s: float = BR_BASELINE_WINDOW_S,
+) -> np.ndarray:
+    """BR analysis via median filtering, with an adaptable window.
+
+    Replaces the previous moving-average + Chebyshev-II + Butterworth chain.
+    Two median-filter passes:
+
+      1. **baseline removal** — `baseline = median_filter(x, baseline_window_s)`
+         captures slow respiratory-baseline wander; subtracting it removes
+         drift *without ringing*. A linear high-pass filter rings around the
+         step transients produced by body motion at the phase boundaries; a
+         median filter does not, which is the whole point of switching.
+      2. **despike / smooth** — a short `median_filter(smooth_window_s)`
+         removes residual motion spikes while preserving the breath waveform
+         shape (median filters are edge-preserving, unlike a moving average).
+
+    Both window lengths are parameters; the defaults (8 s baseline, 0.5 s
+    smooth) suit ~6–20 breaths/min at the 100 Hz working rate. Widen
+    `baseline_window_s` for very slow breathing; widen `smooth_window_s` for
+    noisier mic-coupled respiration belts.
     """
-    x = x.astype(np.float64, copy=False)
-    x = x - np.mean(x)                                # detrend (constant)
-    win = max(1, int(round(0.5 * fs)))
-    x = np.convolve(x, np.ones(win) / win, mode="same")
+    from scipy.ndimage import median_filter
 
-    nyq = 0.5 * fs
-    # Cheby II low-pass: stopband edge frequency 1 Hz
-    stop = min(1.0, nyq * 0.99)
-    sos_lp = signal.cheby2(4, 40.0, stop, btype="low", fs=fs, output="sos")
-    x = signal.sosfiltfilt(sos_lp, x)
-    # Butterworth high-pass at 0.12 Hz (must be below stopband edge)
-    sos_hp = signal.butter(2, 0.12, btype="high", fs=fs, output="sos")
-    x = signal.sosfiltfilt(sos_hp, x)
-    return x
+    x = x.astype(np.float64, copy=False)
+    base_w = max(1, int(round(baseline_window_s * fs)))
+    baseline = median_filter(x, size=base_w, mode="nearest")
+    detrended = x - baseline
+    smooth_w = max(1, int(round(smooth_window_s * fs)))
+    return median_filter(detrended, size=smooth_w, mode="nearest")
 
 
 def detect_br_peaks(br: np.ndarray, fs: float,
-                    clip_mad: float = 5.0) -> tuple[np.ndarray, np.ndarray]:
+                    clip_mad: float = 5.0,
+                    prom_frac: float = 0.25) -> tuple[np.ndarray, np.ndarray]:
     """BR peak detector following features.pdf steps 4-5.
 
     Implementation note: the PDF specifies a 250 ms minimum rising/falling
@@ -245,8 +265,19 @@ def detect_br_peaks(br: np.ndarray, fs: float,
             limit = clip_mad * sigma_robust
             br = np.clip(br, med - limit, med + limit)
 
+    # Global prominence floor: a fraction of the *active* breathing amplitude
+    # (90th percentile of |signal|, robust to the flat rest/recovery stretches
+    # that dominate the median). This suppresses the dense noise peaks the
+    # median-filtered signal still carries where breathing is shallow — those
+    # peaks would otherwise inflate the breath rate to ~25/min. prom_frac=0
+    # disables the floor.
     min_dist = max(int(round(fs * 1.5)), 1)
-    cand, _ = signal.find_peaks(br, distance=min_dist)
+    if prom_frac > 0:
+        active = float(np.percentile(np.abs(br - np.median(br)), 90))
+        prominence = prom_frac * active if active > 1e-9 else None
+    else:
+        prominence = None
+    cand, _ = signal.find_peaks(br, distance=min_dist, prominence=prominence)
     if len(cand) == 0:
         return np.array([], dtype=int), np.array([], dtype=float)
 

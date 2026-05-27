@@ -21,7 +21,11 @@ CHANNEL_INDICES = {
 # regex captures it as its own group so it doesn't pollute the plank token.
 FNAME_RE = re.compile(
     r"^(?P<subject>[A-Za-z]+\d*)[-_](?P<month>\d+)[-_](?P<day>\d+)[-_](?P<stressor>medi|math|pla)"
-    r"(?:[-_](?P<plank>(?!posiECG)[^\.\s\(_]+))?"
+    # Trailing parameter token: plank duration ("1'26", "2") for pla, or a
+    # math task spec ("8_12"). Non-greedy and allows underscores so math's
+    # double-number survives; the negative lookahead keeps it from eating the
+    # posiECG flag.
+    r"(?:[-_](?P<plank>(?!posiECG)[^\.\(][^\.\(]*?))?"
     r"(?P<polarity>_posiECG)?"
     r"(?:\s*\((?P<rep>\d+)\))?\.(?:csv|txt)$"
 )
@@ -73,7 +77,9 @@ def parse_filename(path: str) -> tuple[str, str, str, float | None, int | None, 
     subject = m.group("subject")
     date = f"{int(m.group('month'))}-{int(m.group('day'))}"
     stressor = m.group("stressor")
-    plank = parse_plank_duration(m.group("plank"))
+    # The trailing token is a plank DURATION only for pla; for math it is a
+    # task spec ("8_12") that we don't convert to seconds.
+    plank = parse_plank_duration(m.group("plank")) if stressor == "pla" else None
     rep = int(m.group("rep")) if m.group("rep") else None
     polarity = "positive" if m.group("polarity") else "negative"
     return subject, date, stressor, plank, rep, polarity

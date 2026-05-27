@@ -1,0 +1,281 @@
+[
+  {
+    "name": "ljh_5_21_medi_posiECG",
+    "slug": "ljh_5_21_medi_posiECG",
+    "stressor": "medi",
+    "ecg": "positive",
+    "n_peaks": 199,
+    "mean_rr": 16.92154556148765,
+    "duration_s": 909.36
+  },
+  {
+    "name": "mta-5-17-medi (1)",
+    "slug": "mta-5-17-medi__1_",
+    "stressor": "medi",
+    "ecg": "negative",
+    "n_peaks": 235,
+    "mean_rr": 15.674578703651799,
+    "duration_s": 906.48
+  },
+  {
+    "name": "mta-5-17-medi",
+    "slug": "mta-5-17-medi",
+    "stressor": "medi",
+    "ecg": "negative",
+    "n_peaks": 175,
+    "mean_rr": 13.22628929106001,
+    "duration_s": 923.2
+  },
+  {
+    "name": "mta-5-17-pla-1'26",
+    "slug": "mta-5-17-pla-1_26",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 141,
+    "mean_rr": 20.158247108947048,
+    "duration_s": 715.04
+  },
+  {
+    "name": "mta-5-17-pla-2",
+    "slug": "mta-5-17-pla-2",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 153,
+    "mean_rr": 18.650368596811795,
+    "duration_s": 747.28
+  },
+  {
+    "name": "mta2_5_19_medi",
+    "slug": "mta2_5_19_medi",
+    "stressor": "medi",
+    "ecg": "negative",
+    "n_peaks": 178,
+    "mean_rr": 13.153059543571093,
+    "duration_s": 908.56
+  },
+  {
+    "name": "mta_5_19_medi (1)",
+    "slug": "mta_5_19_medi__1_",
+    "stressor": "medi",
+    "ecg": "negative",
+    "n_peaks": 233,
+    "mean_rr": 17.112620557661277,
+    "duration_s": 897.68
+  },
+  {
+    "name": "mta_5_19_medi",
+    "slug": "mta_5_19_medi",
+    "stressor": "medi",
+    "ecg": "negative",
+    "n_peaks": 233,
+    "mean_rr": 17.112620557661277,
+    "duration_s": 897.68
+  },
+  {
+    "name": "mta_5_19_pla_1'40",
+    "slug": "mta_5_19_pla_1_40",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 161,
+    "mean_rr": 17.493049119555145,
+    "duration_s": 720.32
+  },
+  {
+    "name": "mta_5_19_pla_2'20",
+    "slug": "mta_5_19_pla_2_20",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 183,
+    "mean_rr": 16.121850481352393,
+    "duration_s": 761.04
+  },
+  {
+    "name": "mta_5_21_medi",
+    "slug": "mta_5_21_medi",
+    "stressor": "medi",
+    "ecg": "negative",
+    "n_peaks": 213,
+    "mean_rr": 17.366493367535906,
+    "duration_s": 760.88
+  },
+  {
+    "name": "mta_5_21_pla_2'30(1)",
+    "slug": "mta_5_21_pla_2_30_1_",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 206,
+    "mean_rr": 19.177099736509767,
+    "duration_s": 644.24
+  },
+  {
+    "name": "mta_5_21_pla_2",
+    "slug": "mta_5_21_pla_2",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 186,
+    "mean_rr": 19.027375422116325,
+    "duration_s": 590.16
+  },
+  {
+    "name": "mta_5_26_math_11_13",
+    "slug": "mta_5_26_math_11_13",
+    "stressor": "math",
+    "ecg": "negative",
+    "n_peaks": 220,
+    "mean_rr": 20.382721436140372,
+    "duration_s": 664.8
+  },
+  {
+    "name": "mta_5_26_math_8_12",
+    "slug": "mta_5_26_math_8_12",
+    "stressor": "math",
+    "ecg": "negative",
+    "n_peaks": 159,
+    "mean_rr": 16.589273687568678,
+    "duration_s": 766.8
+  },
+  {
+    "name": "mta_5_26_pla_3'30",
+    "slug": "mta_5_26_pla_3_30",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 220,
+    "mean_rr": 19.12130914265386,
+    "duration_s": 770.16
+  },
+  {
+    "name": "ntv_5_25_pla_2'10",
+    "slug": "ntv_5_25_pla_2_10",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 154,
+    "mean_rr": 17.859268960590544,
+    "duration_s": 611.36
+  },
+  {
+    "name": "ntv_5_25_pla_2",
+    "slug": "ntv_5_25_pla_2",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 129,
+    "mean_rr": 19.273654029945845,
+    "duration_s": 622.32
+  },
+  {
+    "name": "nva_5_26_math_6_8",
+    "slug": "nva_5_26_math_6_8",
+    "stressor": "math",
+    "ecg": "negative",
+    "n_peaks": 189,
+    "mean_rr": 18.223529031632687,
+    "duration_s": 625.84
+  },
+  {
+    "name": "nva_5_26_math_9_12",
+    "slug": "nva_5_26_math_9_12",
+    "stressor": "math",
+    "ecg": "negative",
+    "n_peaks": 154,
+    "mean_rr": 16.120942896037832,
+    "duration_s": 622.32
+  },
+  {
+    "name": "nvt_5_21_medi",
+    "slug": "nvt_5_21_medi",
+    "stressor": "medi",
+    "ecg": "negative",
+    "n_peaks": 233,
+    "mean_rr": 17.157477549791803,
+    "duration_s": 856.24
+  },
+  {
+    "name": "nvt_5_21_pla_2(1)",
+    "slug": "nvt_5_21_pla_2_1_",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 229,
+    "mean_rr": 22.385851878636466,
+    "duration_s": 685.2
+  },
+  {
+    "name": "nvt_5_25_pla_3'30",
+    "slug": "nvt_5_25_pla_3_30",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 143,
+    "mean_rr": 19.773799715377127,
+    "duration_s": 705.44
+  },
+  {
+    "name": "nvt_5_26_math_7_10",
+    "slug": "nvt_5_26_math_7_10",
+    "stressor": "math",
+    "ecg": "negative",
+    "n_peaks": 190,
+    "mean_rr": 18.107495289496377,
+    "duration_s": 629.52
+  },
+  {
+    "name": "nvt_5_26_math_7_11",
+    "slug": "nvt_5_26_math_7_11",
+    "stressor": "math",
+    "ecg": "negative",
+    "n_peaks": 218,
+    "mean_rr": 18.997592471000218,
+    "duration_s": 694.32
+  },
+  {
+    "name": "oyj_5_22_medi_posiECG",
+    "slug": "oyj_5_22_medi_posiECG",
+    "stressor": "medi",
+    "ecg": "positive",
+    "n_peaks": 145,
+    "mean_rr": 12.278547623223997,
+    "duration_s": 743.52
+  },
+  {
+    "name": "oyj_5_22_pla_1'50_posiECG",
+    "slug": "oyj_5_22_pla_1_50_posiECG",
+    "stressor": "pla",
+    "ecg": "positive",
+    "n_peaks": 112,
+    "mean_rr": 14.084831189155597,
+    "duration_s": 585.04
+  },
+  {
+    "name": "oyj_5_22_pla_2'15_posiECG",
+    "slug": "oyj_5_22_pla_2_15_posiECG",
+    "stressor": "pla",
+    "ecg": "positive",
+    "n_peaks": 126,
+    "mean_rr": 13.948622573520863,
+    "duration_s": 605.52
+  },
+  {
+    "name": "smj_5_22_medi",
+    "slug": "smj_5_22_medi",
+    "stressor": "medi",
+    "ecg": "negative",
+    "n_peaks": 185,
+    "mean_rr": 14.797951052931131,
+    "duration_s": 771.12
+  },
+  {
+    "name": "smj_5_22_pla_2'5",
+    "slug": "smj_5_22_pla_2_5",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 136,
+    "mean_rr": 15.26367131462673,
+    "duration_s": 568.8
+  },
+  {
+    "name": "smj_5_22_pla_2",
+    "slug": "smj_5_22_pla_2",
+    "stressor": "pla",
+    "ecg": "negative",
+    "n_peaks": 123,
+    "mean_rr": 14.09440440098781,
+    "duration_s": 633.28
+  }
+]
