@@ -191,7 +191,7 @@ def clean_nn_intervals(
 
 # Default median-filter window sizes (seconds). Both are adaptable — pass
 # different values to filter_br() to retune for slower/faster breathing.
-BR_BASELINE_WINDOW_S = 8.0     # long median → slow-drift baseline (subtracted)
+BR_BASELINE_WINDOW_S = 30.0    # long median → slow-drift baseline (subtracted)
 BR_SMOOTH_WINDOW_S = 0.5       # short median → despike / smooth
 
 

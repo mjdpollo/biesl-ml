@@ -4,8 +4,8 @@
     "slug": "ljh_5_21_medi_posiECG",
     "stressor": "medi",
     "ecg": "positive",
-    "n_peaks": 199,
-    "mean_rr": 16.92154556148765,
+    "n_peaks": 152,
+    "mean_rr": 16.54368007617234,
     "duration_s": 909.36
   },
   {
@@ -13,8 +13,8 @@
     "slug": "mta-5-17-medi__1_",
     "stressor": "medi",
     "ecg": "negative",
-    "n_peaks": 235,
-    "mean_rr": 15.674578703651799,
+    "n_peaks": 70,
+    "mean_rr": 11.027963765261914,
     "duration_s": 906.48
   },
   {
@@ -22,8 +22,8 @@
     "slug": "mta-5-17-medi",
     "stressor": "medi",
     "ecg": "negative",
-    "n_peaks": 175,
-    "mean_rr": 13.22628929106001,
+    "n_peaks": 53,
+    "mean_rr": 8.499156829679595,
     "duration_s": 923.2
   },
   {
@@ -31,8 +31,8 @@
     "slug": "mta-5-17-pla-1_26",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 141,
-    "mean_rr": 20.158247108947048,
+    "n_peaks": 133,
+    "mean_rr": 19.827029817994063,
     "duration_s": 715.04
   },
   {
@@ -40,8 +40,8 @@
     "slug": "mta-5-17-pla-2",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 153,
-    "mean_rr": 18.650368596811795,
+    "n_peaks": 135,
+    "mean_rr": 17.38277767873061,
     "duration_s": 747.28
   },
   {
@@ -49,8 +49,8 @@
     "slug": "mta2_5_19_medi",
     "stressor": "medi",
     "ecg": "negative",
-    "n_peaks": 178,
-    "mean_rr": 13.153059543571093,
+    "n_peaks": 130,
+    "mean_rr": 12.346113260640168,
     "duration_s": 908.56
   },
   {
@@ -58,8 +58,8 @@
     "slug": "mta_5_19_medi__1_",
     "stressor": "medi",
     "ecg": "negative",
-    "n_peaks": 233,
-    "mean_rr": 17.112620557661277,
+    "n_peaks": 119,
+    "mean_rr": 13.988919667590027,
     "duration_s": 897.68
   },
   {
@@ -67,8 +67,8 @@
     "slug": "mta_5_19_medi",
     "stressor": "medi",
     "ecg": "negative",
-    "n_peaks": 233,
-    "mean_rr": 17.112620557661277,
+    "n_peaks": 119,
+    "mean_rr": 13.988919667590027,
     "duration_s": 897.68
   },
   {
@@ -76,8 +76,8 @@
     "slug": "mta_5_19_pla_1_40",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 161,
-    "mean_rr": 17.493049119555145,
+    "n_peaks": 119,
+    "mean_rr": 14.91219920096627,
     "duration_s": 720.32
   },
   {
@@ -85,8 +85,8 @@
     "slug": "mta_5_19_pla_2_20",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 183,
-    "mean_rr": 16.121850481352393,
+    "n_peaks": 143,
+    "mean_rr": 16.46090534979424,
     "duration_s": 761.04
   },
   {
@@ -94,8 +94,8 @@
     "slug": "mta_5_21_medi",
     "stressor": "medi",
     "ecg": "negative",
-    "n_peaks": 213,
-    "mean_rr": 17.366493367535906,
+    "n_peaks": 104,
+    "mean_rr": 13.293833553237572,
     "duration_s": 760.88
   },
   {
@@ -103,8 +103,8 @@
     "slug": "mta_5_21_pla_2_30_1_",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 206,
-    "mean_rr": 19.177099736509767,
+    "n_peaks": 203,
+    "mean_rr": 18.998949728026584,
     "duration_s": 644.24
   },
   {
@@ -112,8 +112,8 @@
     "slug": "mta_5_21_pla_2",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 186,
-    "mean_rr": 19.027375422116325,
+    "n_peaks": 171,
+    "mean_rr": 18.020579715296165,
     "duration_s": 590.16
   },
   {
@@ -121,8 +121,8 @@
     "slug": "mta_5_26_math_11_13",
     "stressor": "math",
     "ecg": "negative",
-    "n_peaks": 220,
-    "mean_rr": 20.382721436140372,
+    "n_peaks": 219,
+    "mean_rr": 20.289222713956246,
     "duration_s": 664.8
   },
   {
@@ -130,8 +130,8 @@
     "slug": "mta_5_26_math_8_12",
     "stressor": "math",
     "ecg": "negative",
-    "n_peaks": 159,
-    "mean_rr": 16.589273687568678,
+    "n_peaks": 127,
+    "mean_rr": 13.272665143967052,
     "duration_s": 766.8
   },
   {
@@ -139,8 +139,8 @@
     "slug": "mta_5_26_pla_3_30",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 220,
-    "mean_rr": 19.12130914265386,
+    "n_peaks": 196,
+    "mean_rr": 18.53243994116686,
     "duration_s": 770.16
   },
   {
@@ -148,8 +148,8 @@
     "slug": "ntv_5_25_pla_2_10",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 154,
-    "mean_rr": 17.859268960590544,
+    "n_peaks": 124,
+    "mean_rr": 16.708358899325056,
     "duration_s": 611.36
   },
   {
@@ -157,8 +157,8 @@
     "slug": "ntv_5_25_pla_2",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 129,
-    "mean_rr": 19.273654029945845,
+    "n_peaks": 110,
+    "mean_rr": 17.605531506928912,
     "duration_s": 622.32
   },
   {
@@ -166,8 +166,8 @@
     "slug": "nva_5_26_math_6_8",
     "stressor": "math",
     "ecg": "negative",
-    "n_peaks": 189,
-    "mean_rr": 18.223529031632687,
+    "n_peaks": 165,
+    "mean_rr": 15.897121070147662,
     "duration_s": 625.84
   },
   {
@@ -175,8 +175,8 @@
     "slug": "nva_5_26_math_9_12",
     "stressor": "math",
     "ecg": "negative",
-    "n_peaks": 154,
-    "mean_rr": 16.120942896037832,
+    "n_peaks": 130,
+    "mean_rr": 13.847712688107478,
     "duration_s": 622.32
   },
   {
@@ -184,8 +184,8 @@
     "slug": "nvt_5_21_medi",
     "stressor": "medi",
     "ecg": "negative",
-    "n_peaks": 233,
-    "mean_rr": 17.157477549791803,
+    "n_peaks": 134,
+    "mean_rr": 17.360025023459492,
     "duration_s": 856.24
   },
   {
@@ -193,8 +193,8 @@
     "slug": "nvt_5_21_pla_2_1_",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 229,
-    "mean_rr": 22.385851878636466,
+    "n_peaks": 200,
+    "mean_rr": 19.9799520888904,
     "duration_s": 685.2
   },
   {
@@ -202,8 +202,8 @@
     "slug": "nvt_5_25_pla_3_30",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 143,
-    "mean_rr": 19.773799715377127,
+    "n_peaks": 124,
+    "mean_rr": 19.261897054062803,
     "duration_s": 705.44
   },
   {
@@ -211,8 +211,8 @@
     "slug": "nvt_5_26_math_7_10",
     "stressor": "math",
     "ecg": "negative",
-    "n_peaks": 190,
-    "mean_rr": 18.107495289496377,
+    "n_peaks": 187,
+    "mean_rr": 17.82007472934564,
     "duration_s": 629.52
   },
   {
@@ -220,8 +220,8 @@
     "slug": "nvt_5_26_math_7_11",
     "stressor": "math",
     "ecg": "negative",
-    "n_peaks": 218,
-    "mean_rr": 18.997592471000218,
+    "n_peaks": 187,
+    "mean_rr": 16.876347126893616,
     "duration_s": 694.32
   },
   {
@@ -229,8 +229,8 @@
     "slug": "oyj_5_22_medi_posiECG",
     "stressor": "medi",
     "ecg": "positive",
-    "n_peaks": 145,
-    "mean_rr": 12.278547623223997,
+    "n_peaks": 80,
+    "mean_rr": 10.276579548337985,
     "duration_s": 743.52
   },
   {
@@ -238,8 +238,8 @@
     "slug": "oyj_5_22_pla_1_50_posiECG",
     "stressor": "pla",
     "ecg": "positive",
-    "n_peaks": 112,
-    "mean_rr": 14.084831189155597,
+    "n_peaks": 63,
+    "mean_rr": 11.769616026711187,
     "duration_s": 585.04
   },
   {
@@ -247,8 +247,8 @@
     "slug": "oyj_5_22_pla_2_15_posiECG",
     "stressor": "pla",
     "ecg": "positive",
-    "n_peaks": 126,
-    "mean_rr": 13.948622573520863,
+    "n_peaks": 51,
+    "mean_rr": 10.561370123691724,
     "duration_s": 605.52
   },
   {
@@ -256,8 +256,8 @@
     "slug": "smj_5_22_medi",
     "stressor": "medi",
     "ecg": "negative",
-    "n_peaks": 185,
-    "mean_rr": 14.797951052931131,
+    "n_peaks": 130,
+    "mean_rr": 15.19657960777024,
     "duration_s": 771.12
   },
   {
@@ -265,8 +265,8 @@
     "slug": "smj_5_22_pla_2_5",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 136,
-    "mean_rr": 15.26367131462673,
+    "n_peaks": 140,
+    "mean_rr": 15.423589896430965,
     "duration_s": 568.8
   },
   {
@@ -274,8 +274,8 @@
     "slug": "smj_5_22_pla_2",
     "stressor": "pla",
     "ecg": "negative",
-    "n_peaks": 123,
-    "mean_rr": 14.09440440098781,
+    "n_peaks": 103,
+    "mean_rr": 13.630700832987271,
     "duration_s": 633.28
   }
 ]
