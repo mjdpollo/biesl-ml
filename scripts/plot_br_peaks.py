@@ -30,7 +30,7 @@ from src.io import list_recordings, load_recording, phase_boundaries, resample_u
 from src.preprocess import (  # noqa: E402
     BR_BASELINE_WINDOW_S,
     BR_SMOOTH_WINDOW_S,
-    detect_br_peaks,
+    detect_br_peaks_neurokit,
     filter_br,
 )
 
@@ -48,7 +48,7 @@ def plot_recording(path: str) -> dict:
     br_t0 = float(rec.channels["br"][0, 0])
     raw = resample_uniform(rec.channels["br"], BR_FS).astype(np.float64)
     filt = filter_br(raw, BR_FS)
-    peaks, amps = detect_br_peaks(filt, BR_FS)
+    peaks = detect_br_peaks_neurokit(filt, BR_FS)
 
     t = br_t0 + np.arange(len(filt)) / BR_FS
     dur = len(filt) / BR_FS

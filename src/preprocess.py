@@ -304,6 +304,81 @@ def detect_br_peaks(br: np.ndarray, fs: float,
     return np.asarray(accepted, dtype=int), np.asarray(amps, dtype=float)
 
 
+def detect_br_peaks_sliding(
+    br: np.ndarray, fs: float,
+    *,
+    window_s: float = 60.0,
+    step_s: float = 30.0,
+    prom_frac: float = 0.25,
+    merge_dist_s: float = 0.75,
+) -> np.ndarray:
+    """Sliding-window BR peak detector with a LOCAL prominence floor.
+
+    For each `window_s`-long window (stepped by `step_s`) we recompute the
+    prominence floor as `prom_frac × p90(|x − median(x)|)` within that window.
+    This is the key difference vs `detect_br_peaks`: the floor adapts to the
+    LOCAL breathing amplitude, so the detector neither under-fires in
+    low-SNR rest stretches nor over-fires when the active-phase amplitude
+    dominates a global percentile.
+
+    Peaks found in overlapping windows are de-duplicated by merging any pair
+    within `merge_dist_s` seconds (keeping the larger-amplitude one).
+    """
+    n = len(br)
+    if n < int(fs * 2):
+        return np.array([], dtype=int)
+    win_n = max(int(round(window_s * fs)), 1)
+    step_n = max(int(round(step_s * fs)), 1)
+    dist = max(int(round(fs * 1.5)), 1)
+
+    found: list[int] = []
+    starts = list(range(0, max(n - win_n + 1, 1), step_n))
+    if starts[-1] + win_n < n:                       # tail window
+        starts.append(max(0, n - win_n))
+    for s in starts:
+        seg = br[s:s + win_n]
+        if len(seg) < int(fs * 2):
+            continue
+        active = float(np.percentile(np.abs(seg - np.median(seg)), 90))
+        prom = prom_frac * active if active > 1e-9 else None
+        loc, _ = signal.find_peaks(seg, distance=dist, prominence=prom)
+        found.extend((loc + s).tolist())
+    if not found:
+        return np.array([], dtype=int)
+
+    # de-duplicate: any two peaks within `merge_dist_s` collapse into the larger.
+    merge = max(int(round(merge_dist_s * fs)), 1)
+    found.sort()
+    out: list[int] = [found[0]]
+    for p in found[1:]:
+        if p - out[-1] > merge:
+            out.append(p)
+        elif br[p] > br[out[-1]]:
+            out[-1] = p
+    return np.asarray(out, dtype=int)
+
+
+def detect_br_peaks_neurokit(
+    br: np.ndarray, fs: float, *, method: str = "biosppy",
+) -> np.ndarray:
+    """neurokit2's respiration peak detector.
+
+    `method` is forwarded to `neurokit2.rsp_peaks`. "biosppy" is the default
+    BioSPPy implementation (zero-crossing on the derivative + amplitude
+    threshold) and is robust across a wide range of breathing rates.
+    "khodadad2018" is specifically optimized for respiration belts.
+    """
+    import neurokit2 as nk
+    if len(br) < int(fs * 2):
+        return np.array([], dtype=int)
+    try:
+        _, info = nk.rsp_peaks(br, sampling_rate=int(round(fs)), method=method)
+    except Exception:
+        return np.array([], dtype=int)
+    peaks = np.asarray(info.get("RSP_Peaks", []), dtype=int)
+    return peaks
+
+
 # ---- Microphone / PCG ------------------------------------------------------
 
 def filter_mic_pcg(x: np.ndarray, fs: float) -> np.ndarray:

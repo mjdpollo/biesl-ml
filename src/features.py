@@ -23,7 +23,7 @@ from .io import Recording, channel_fs, phase_boundaries, resample_uniform
 from .preprocess import (
     clean_nn_intervals,
     classify_s1_s2,
-    detect_br_peaks,
+    detect_br_peaks_neurokit,
     detect_ecg_rpeaks,
     detect_ecg_rpeaks_per_phase,
     detect_pcg_peaks,
@@ -250,7 +250,11 @@ def preprocess_recording(
     br_t0 = float(rec.channels["br"][0, 0])
     br_u = resample_uniform(rec.channels["br"], br_fs_target).astype(np.float64)
     br_f = filter_br(br_u, br_fs_target)
-    br_peaks, _ = detect_br_peaks(br_f, br_fs_target)
+    # neurokit2's rsp_peaks (biosppy method) wins the detector comparison —
+    # 3-5x tighter per-phase IQR across recordings than either the global
+    # prominence or the sliding-window adaptive detector. See
+    # br-detector-comparison.md.
+    br_peaks = detect_br_peaks_neurokit(br_f, br_fs_target)
 
     # Mic @ 2 kHz (matches native rate, Nyquist 1 kHz ≫ 200 Hz PCG band)
     mic_t0 = float(rec.channels["mic"][0, 0])

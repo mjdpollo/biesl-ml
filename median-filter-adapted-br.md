@@ -28,6 +28,16 @@ noisier mic-coupled belts. The working sample rate is 100 Hz.
 > as ~17–22 bpm. At 30 s the baseline is a genuine slow-drift proxy and
 > rates drop into a physiologically sensible 10–20 bpm range.
 
+> **Peak detector update — switched to neurokit2.** After a head-to-head
+> comparison across all 31 recordings (see
+> [`br-detector-comparison.md`](br-detector-comparison.md)),
+> `neurokit2.rsp_peaks(method="biosppy")` wins on per-phase consistency
+> (3–5× tighter cross-recording IQR) and on physiological plausibility
+> (medi stress ≈ 9 bpm, pla stress ≈ 13 bpm, math stress ≈ 13 bpm). It is
+> now the default in `src/features.py:preprocess_recording`. The earlier
+> global-prominence and sliding-window detectors are kept in
+> `src/preprocess.py` as alternatives for diagnostic plots.
+
 ### Peak detection
 
 `scipy.signal.find_peaks` with:
