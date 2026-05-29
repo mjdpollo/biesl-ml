@@ -93,29 +93,67 @@ def _per_phase_stats(peaks_idx: np.ndarray, fs: float, phases: dict, t0: float) 
 def _plot_compare(rec_name: str, t: np.ndarray, filt: np.ndarray,
                   results: dict, phases: dict, out_path: Path,
                   ecg_polarity: str, stressor: str) -> None:
-    fig, axes = plt.subplots(3, 1, figsize=(16, 7), sharex=True)
-    for ax, method in zip(axes, METHODS):
-        peaks = results[method]["peaks"]
-        n_total = len(peaks)
-        ax.plot(t, filt, color="0.30", lw=0.6)
-        if n_total:
-            ax.plot(t[peaks], filt[peaks], "v", color=METHOD_COLORS[method], ms=4,
-                    label=f"{method}  (n={n_total})")
-        # phase boundaries + shading
-        for ph, (a, b) in phases.items():
-            ax.axvspan(a, b, color="gray", alpha=0.06 if ph == "rest" else 0.10 if ph == "stress" else 0.04, lw=0)
-            ax.axvline(a, color="k", ls="--", lw=0.5, alpha=0.4)
+    """Per-recording figure: 3 rows (detectors) × 3 cols (rest / stress /
+    recovery). Each subplot auto-scales its own y-axis so low-amplitude rest
+    breaths aren't crushed by the high-amplitude stress phase.
+    """
+    phase_order = ["rest", "stress", "recovery"]
+    n_rows, n_cols = len(METHODS), len(phase_order)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 7),
+                             gridspec_kw=dict(wspace=0.18, hspace=0.45))
+    if n_rows == 1:
+        axes = np.array([axes])
+
+    for r, method in enumerate(METHODS):
+        peaks_all = results[method]["peaks"]
         per = results[method]["per_phase"]
-        ph_str = "  ".join(f"{ph}: n={per[ph]['n_peaks']} ({per[ph]['rate_bpm']:.1f}/min)" for ph in phases)
-        ax.set_ylabel(f"{method}\nBR (filt)", fontsize=9)
-        ax.set_title(f"{method}   {ph_str}", fontsize=8, loc="left")
-        ax.legend(loc="upper right", fontsize=7)
-    axes[0].set_title(f"{rec_name}   stressor={stressor}   ecg={ecg_polarity}   "
-                      f"(median win: base {BR_BASELINE_WINDOW_S}s / smooth {BR_SMOOTH_WINDOW_S}s)",
-                      fontsize=10, loc="center")
-    axes[-1].set_xlabel("time (s)")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
+        # absolute time of each detected peak
+        t_peaks = t[peaks_all] if len(peaks_all) else np.array([])
+
+        for c, ph in enumerate(phase_order):
+            ax = axes[r, c]
+            a, b = phases[ph]
+            mask_t = (t >= a) & (t < b)
+            if not mask_t.any():
+                ax.set_axis_off()
+                continue
+            tt = t[mask_t]
+            ss = filt[mask_t]
+            ax.plot(tt, ss, color="0.30", lw=0.7)
+            if t_peaks.size:
+                pmask = (t_peaks >= a) & (t_peaks < b)
+                if pmask.any():
+                    pt = t_peaks[pmask]
+                    pv = filt[peaks_all][pmask]
+                    ax.plot(pt, pv, "v", color=METHOD_COLORS[method], ms=4)
+
+            # Robust y-limits per panel: clip out the single huge boundary
+            # spikes (motion artefacts at 300 s / end-of-stress) that would
+            # otherwise force the y-range to ±5e6 and crush the breathing
+            # waves. Use 1st-99th percentile with a small padding.
+            if ss.size:
+                lo, hi = np.percentile(ss, [1.0, 99.0])
+                pad = max(0.10 * max(abs(lo), abs(hi)), 1e-9)
+                ax.set_ylim(lo - pad, hi + pad)
+
+            # subtitle: per-phase count + rate
+            rate = per[ph]["rate_bpm"]
+            n = per[ph]["n_peaks"]
+            rate_s = f"{rate:.1f}/min" if rate == rate else "n/a"
+            ax.set_title(f"{method} · {ph}   n={n}   RR={rate_s}", fontsize=8)
+            ax.grid(alpha=0.3, lw=0.4)
+            if r == n_rows - 1:
+                ax.set_xlabel("time (s)", fontsize=8)
+            if c == 0:
+                ax.set_ylabel("BR (filt)", fontsize=8)
+            ax.tick_params(labelsize=7)
+
+    fig.suptitle(
+        f"{rec_name}   stressor={stressor}   ecg={ecg_polarity}   "
+        f"(median win: base {BR_BASELINE_WINDOW_S}s / smooth {BR_SMOOTH_WINDOW_S}s)",
+        fontsize=10,
+    )
+    fig.savefig(out_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
 
 

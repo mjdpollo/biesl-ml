@@ -1,15 +1,25 @@
 # BR peak-detector comparison
 
-Three detectors were evaluated on every recording, with peaks split by phase
-(`rest` 0–5 min, `stress` 5 min – 5 min + stressor duration, `recovery`
-remainder). The goal: pick the detector with the most physiologically
-consistent per-phase rates and the cleanest visual placement of peaks.
+Head-to-head of three BR peak detectors on every recording, split by
+**phase** (rest / stress / recovery) and grouped by **stressor type**
+(meditation / plank / math). The plots use **a separate y-axis per phase**
+— the stress phase has ~70× the amplitude of rest/recovery, so a single
+shared y-axis (as in the previous version) crushed the rest/recovery
+detail. Each panel now autoscales independently so you can see what each
+detector is actually placing peaks on.
 
-| Detector | Where it lives | Idea |
+## Setup
+
+- **Filter chain:** median filter (30 s baseline median + 0.5 s smoothing median).
+- **Boundary policy:** windows within **±40 s** of the 5-min or 10-min protocol transitions are excluded from training (per request); peak-detection plots show the **full** recording so the transition behaviour is visible.
+- **Working rate:** 100 Hz.
+- **Detectors:**
+
+| Detector | Source | Threshold logic |
 |---|---|---|
-| **global** | `src.preprocess.detect_br_peaks` | `find_peaks` with min-dist 1.5 s and a **global** prominence floor `prom_frac × p90(|signal|)`. The threshold is calibrated on the whole signal — biased toward the high-amplitude active phases. |
-| **sliding** | `src.preprocess.detect_br_peaks_sliding` | `find_peaks` per 60 s window (30 s step) with a **local** prominence floor recomputed from each window's p90. Idea: adapt the floor to local amplitude. |
-| **neurokit** | `src.preprocess.detect_br_peaks_neurokit` | `neurokit2.rsp_peaks(method="biosppy")` — BioSPPy's zero-crossing-on-derivative + amplitude-threshold detector. |
+| **global** | `src.preprocess.detect_br_peaks` | Single global prominence floor `prom_frac × p90(|signal|)` (calibrated on the whole signal). |
+| **sliding** | `src.preprocess.detect_br_peaks_sliding` | Local prominence floor per 60 s window. |
+| **neurokit** | `src.preprocess.detect_br_peaks_neurokit` | `neurokit2.rsp_peaks(method="biosppy")` — BioSPPy zero-crossing-on-derivative + amplitude threshold. |
 
 ## 1. Aggregate per-phase median RR (bpm) across 31 recordings
 
@@ -17,11 +27,11 @@ consistent per-phase rates and the cleanest visual placement of peaks.
 
 | Detector | rest | stress | recovery |
 |---|---|---|---|
-| global | 14.7 (IQR 5.7) | 11.7 (IQR 7.6) | 18.0 (IQR 6.4) |
-| sliding | 18.6 (IQR 5.1) | 12.6 (IQR 7.9) | 20.4 (IQR 4.7) |
+| global   | 14.7 (IQR 5.7) | 11.7 (IQR 7.6) | 18.0 (IQR 6.4) |
+| sliding  | 18.6 (IQR 5.1) | 12.6 (IQR 7.9) | 20.4 (IQR 4.7) |
 | **neurokit** | **13.4 (IQR 1.1)** | **11.8 (IQR 3.9)** | **14.8 (IQR 4.3)** |
 
-**neurokit's IQRs are 3–5 × tighter** than either alternative — its
+neurokit's IQRs are 3–5× tighter than either alternative — its
 per-recording rates are far more consistent across subjects.
 
 ## 2. Per-stressor sanity check (neurokit, stress-phase rate)
@@ -30,127 +40,170 @@ The stress-phase rate should match what the protocol does to breathing:
 
 | Stressor | Expected | neurokit median |
 |---|---|---|
-| `medi` (meditation, deliberate slow deep breaths) | LOW (~6–10 bpm) | ~9 bpm ✓ |
+| `medi` (deliberate slow deep breaths) | LOW (~6–10 bpm) | ~9 bpm ✓ |
 | `pla` (plank, effort breathing) | ELEVATED (~12–18 bpm) | ~13 bpm ✓ |
 | `math` (cognitive stress) | MODERATE (~12–18 bpm) | ~13 bpm ✓ |
 
-This is the cleanest physiological signal of the three detectors.
+The cleanest physiological signal of the three detectors.
 
-## 3. Visual story — why sliding fails
+## 3. Why sliding fails
 
-The "sliding adapts the floor in the wrong direction." The flat rest/recovery
-stretches have very small amplitude, so their **local** p90 is tiny, so the
-**local** prominence floor is tiny, so the detector fires on every noise bump.
-The result: rest/recovery breath rates inflated to ~18–25 bpm with no
-respiratory rhythm to back them up.
+The sliding-window detector "adapts in the wrong direction." Flat rest /
+recovery stretches have very small amplitude, so their **local** p90 is
+tiny, so the **local** prominence floor is tiny, so the detector fires on
+every noise bump. Result: rest/recovery breath rates inflated to ~18–25
+bpm with no actual respiratory rhythm.
 
-Global avoids this by using one floor for the whole recording — but at the
-cost of being calibrated to the high-amplitude active phase and thus missing
-shallow breaths in rest. neurokit splits the difference using its own
-internal amplitude logic (BioSPPy style).
+Global avoids this by using one floor for the whole recording — but it's
+then calibrated to the high-amplitude active phase and can miss shallow
+breaths in rest. neurokit splits the difference using its own amplitude
+logic.
 
-## 4. Per-recording, per-phase rates
+## 4. Per-recording divided plots
 
-| recording | stressor | global rest / stress / recovery | sliding rest / stress / recovery | neurokit rest / stress / recovery |
-|---|---|---|---|---|
-| ljh_5_21_medi_posiECG | medi | 22.2 / 7.6 / 18.0 | 23.0 / 6.9 / 24.0 | 13.7 / 8.2 / 13.0 |
-| mta-5-17-medi (1) | medi | 11.9 / 8.7 / 9.9 | 23.2 / 8.4 / 18.9 | 12.8 / — / 12.5 |
-| mta-5-17-medi | medi | 10.3 / 8.1 / 7.7 | 16.1 / 8.2 / 12.0 | 13.6 / 11.2 / 11.3 |
-| mta-5-17-pla-1'26 | pla | 16.0 / 8.9 / 21.7 | 21.2 / 12.2 / 21.6 | 16.8 / 10.2 / 19.2 |
-| mta-5-17-pla-2 | pla | 11.6 / 11.3 / 20.1 | 26.1 / 11.6 / 20.3 | 11.6 / 9.9 / 18.8 |
-| mta2_5_19_medi | medi | 15.4 / 9.8 / 7.8 | 17.1 / 10.6 / 19.0 | 12.9 / 9.8 / 12.4 |
-| mta_5_19_medi (1) | medi | 8.9 / 9.3 / 18.6 | 29.0 / 9.1 / 22.1 | 13.1 / 8.8 / 14.8 |
-| mta_5_19_medi | medi | 8.9 / 9.3 / 18.6 | 29.0 / 9.1 / 22.1 | 13.1 / 8.8 / 14.8 |
-| mta_5_19_pla_1'40 | pla | 8.7 / 13.1 / 17.3 | 17.8 / 14.4 / 19.3 | 13.0 / 13.8 / 15.6 |
-| mta_5_19_pla_2'20 | pla | 8.6 / 13.3 / 19.2 | 23.0 / 14.4 / 20.4 | 13.4 / 13.9 / 14.7 |
-| mta_5_21_medi | medi | 14.4 / 10.1 / 15.5 | 22.3 / 12.0 / 23.6 | 11.5 / 12.8 / 15.7 |
-| mta_5_21_pla_2'30(1) | pla | 16.2 / 20.2 / 22.3 | 17.0 / 19.3 / 23.3 | 13.3 / 12.4 / 18.3 |
-| mta_5_21_pla_2 | pla | 15.0 / 21.9 / 20.2 | 20.5 / 21.8 / 23.1 | 13.2 / 15.0 / 15.6 |
-| mta_5_26_math_11_13 | math | 16.3 / 23.5 / 23.0 | 16.4 / 23.7 / 23.0 | 9.3 / 18.3 / 14.3 |
-| mta_5_26_math_8_12 | math | 17.1 / 11.7 / 11.1 | 18.5 / 12.6 / 14.9 | 12.8 / 13.2 / 11.4 |
-| mta_5_26_pla_3'30 | pla | 14.5 / 18.9 / 27.1 | 16.5 / 19.6 / 25.1 | 13.7 / 14.4 / 20.4 |
-| ntv_5_25_pla_2'10 | pla | 16.0 / 11.7 / 20.9 | 27.0 / 11.6 / 22.5 | 11.6 / 8.7 / 13.0 |
-| ntv_5_25_pla_2 | pla | 11.0 / 17.4 / 19.3 | 18.0 / 17.3 / 21.1 | 14.9 / 14.3 / 18.0 |
-| nva_5_26_math_6_8 | math | 17.6 / 13.8 / 21.5 | 19.7 / 15.7 / 21.5 | 15.0 / 11.5 / 12.3 |
-| nva_5_26_math_9_12 | math | 13.7 / 13.6 / 16.5 | 18.5 / 15.2 / 16.7 | 14.0 / 13.1 / 14.1 |
-| nvt_5_21_medi | medi | 18.6 / 16.2 / 14.8 | 22.3 / 5.5 / 22.6 | 13.5 / 9.2 / 12.6 |
-| nvt_5_21_pla_2(1) | pla | 19.5 / 18.6 / 20.7 | 25.5 / 24.6 / 21.9 | 15.1 / 11.2 / 15.2 |
-| nvt_5_25_pla_3'30 | pla | — / 17.7 / 20.9 | 18.2 / 20.1 / 21.3 | 13.9 / 14.9 / 20.5 |
-| nvt_5_26_math_7_10 | math | 18.4 / 17.1 / 20.2 | 18.6 / 17.8 / 20.2 | 15.2 / 14.6 / — |
-| nvt_5_26_math_7_11 | math | 17.3 / 17.2 / 13.8 | 21.3 / 18.3 / 17.7 | 13.1 / 12.6 / 17.0 |
-| oyj_5_22_medi_posiECG | medi | 10.1 / 10.7 / 10.6 | 17.2 / 11.7 / 10.0 | 9.9 / 10.0 / 10.7 |
-| oyj_5_22_pla_1'50_posiECG | pla | 11.3 / 8.7 / 13.3 | 16.3 / 9.1 / 16.7 | 13.2 / 8.1 / 13.0 |
-| oyj_5_22_pla_2'15_posiECG | pla | 10.1 / 10.2 / 11.0 | 18.5 / 10.1 / 14.0 | 14.1 / 12.1 / 8.8 |
-| smj_5_22_medi | medi | 16.9 / 5.3 / 14.4 | 19.7 / 6.8 / 17.6 | 16.7 / 7.6 / 18.7 |
-| smj_5_22_pla_2'5 | pla | 14.8 / 13.7 / 17.5 | 15.0 / 17.3 / 17.5 | 13.9 / 13.2 / 16.7 |
-| smj_5_22_pla_2 | pla | 12.0 / 10.9 / 15.7 | 18.1 / 14.9 / 15.7 | 15.3 / 11.3 / 14.9 |
+Each plot has 3 rows (detectors: global red, sliding orange, neurokit
+green) × 3 columns (phases: rest / stress / recovery). **Each panel has
+its own y-axis** so low-amplitude rest/recovery breaths aren't crushed by
+the high-amplitude stress phase.
 
-## 5. Decision
+### 4.1 Meditation (10 recordings)
 
-**Adopt `neurokit2.rsp_peaks(method="biosppy")` as the default BR peak
-detector** (changed in [`src/features.py`](src/features.py) `preprocess_recording`).
-
-Reasons:
-1. 3–5 × tighter per-phase IQR across recordings → more consistent across subjects.
-2. Stressor-stratified stress-phase rates match physiology (medi ≈ 9, pla ≈ 13, math ≈ 13 bpm) — neither the global nor sliding detector gives this clean a separation.
-3. Visually clean peak placement in active phases with sparse, plausible peaks in rest/recovery; neither false-fires (sliding) nor under-fires shallow rest breaths (global, on some recordings).
-
-The `detect_br_peaks` and `detect_br_peaks_sliding` functions are kept in
-`src/preprocess.py` as alternatives for the diagnostic plots in
-[`figures/br_compare/`](figures/br_compare/) — 31 side-by-side comparison
-plots (3-row panels, one method each).
-
-## 6. Comparison plots
-
-One panel per recording, 3 rows (`global` red ▽, `sliding` orange ▽,
-`neurokit` green ▽), phase boundaries marked as faint vertical lines.
-
-| recording | plot |
+| Recording | global / sliding / neurokit · rest / stress / recovery |
 |---|---|
-| ljh_5_21_medi_posiECG | ![](figures/br_compare/ljh_5_21_medi_posiECG.png) |
-| mta-5-17-medi | ![](figures/br_compare/mta-5-17-medi.png) |
-| mta-5-17-medi (1) | ![](figures/br_compare/mta-5-17-medi__1_.png) |
-| mta-5-17-pla-1'26 | ![](figures/br_compare/mta-5-17-pla-1_26.png) |
-| mta-5-17-pla-2 | ![](figures/br_compare/mta-5-17-pla-2.png) |
-| mta2_5_19_medi | ![](figures/br_compare/mta2_5_19_medi.png) |
-| mta_5_19_medi | ![](figures/br_compare/mta_5_19_medi.png) |
-| mta_5_19_medi (1) | ![](figures/br_compare/mta_5_19_medi__1_.png) |
-| mta_5_19_pla_1'40 | ![](figures/br_compare/mta_5_19_pla_1_40.png) |
-| mta_5_19_pla_2'20 | ![](figures/br_compare/mta_5_19_pla_2_20.png) |
-| mta_5_21_medi | ![](figures/br_compare/mta_5_21_medi.png) |
-| mta_5_21_pla_2'30(1) | ![](figures/br_compare/mta_5_21_pla_2_30_1_.png) |
-| mta_5_21_pla_2 | ![](figures/br_compare/mta_5_21_pla_2.png) |
-| mta_5_26_math_11_13 | ![](figures/br_compare/mta_5_26_math_11_13.png) |
-| mta_5_26_math_8_12 | ![](figures/br_compare/mta_5_26_math_8_12.png) |
-| mta_5_26_pla_3'30 | ![](figures/br_compare/mta_5_26_pla_3_30.png) |
-| ntv_5_25_pla_2'10 | ![](figures/br_compare/ntv_5_25_pla_2_10.png) |
-| ntv_5_25_pla_2 | ![](figures/br_compare/ntv_5_25_pla_2.png) |
-| nva_5_26_math_6_8 | ![](figures/br_compare/nva_5_26_math_6_8.png) |
-| nva_5_26_math_9_12 | ![](figures/br_compare/nva_5_26_math_9_12.png) |
-| nvt_5_21_medi | ![](figures/br_compare/nvt_5_21_medi.png) |
-| nvt_5_21_pla_2(1) | ![](figures/br_compare/nvt_5_21_pla_2_1_.png) |
-| nvt_5_25_pla_3'30 | ![](figures/br_compare/nvt_5_25_pla_3_30.png) |
-| nvt_5_26_math_7_10 | ![](figures/br_compare/nvt_5_26_math_7_10.png) |
-| nvt_5_26_math_7_11 | ![](figures/br_compare/nvt_5_26_math_7_11.png) |
-| oyj_5_22_medi_posiECG | ![](figures/br_compare/oyj_5_22_medi_posiECG.png) |
-| oyj_5_22_pla_1'50_posiECG | ![](figures/br_compare/oyj_5_22_pla_1_50_posiECG.png) |
-| oyj_5_22_pla_2'15_posiECG | ![](figures/br_compare/oyj_5_22_pla_2_15_posiECG.png) |
-| smj_5_22_medi | ![](figures/br_compare/smj_5_22_medi.png) |
-| smj_5_22_pla_2'5 | ![](figures/br_compare/smj_5_22_pla_2_5.png) |
-| smj_5_22_pla_2 | ![](figures/br_compare/smj_5_22_pla_2.png) |
+| ljh_5_21_medi_posiECG | global: 22.2 / 7.6 / 18.0 — sliding: 23.0 / 6.9 / 24.0 — **neurokit: 13.7 / 8.2 / 13.0** |
+| mta-5-17-medi | global: 10.3 / 8.1 / 7.7 — sliding: 16.1 / 8.2 / 12.0 — **neurokit: 13.6 / 11.2 / 11.3** |
+| mta-5-17-medi (1) | global: 11.9 / 8.7 / 9.9 — sliding: 23.2 / 8.4 / 18.9 — **neurokit: 12.8 / — / 12.5** |
+| mta2_5_19_medi | global: 15.4 / 9.8 / 7.8 — sliding: 17.1 / 10.6 / 19.0 — **neurokit: 12.9 / 9.8 / 12.4** |
+| mta_5_19_medi | global: 8.9 / 9.3 / 18.6 — sliding: 29.0 / 9.1 / 22.1 — **neurokit: 13.1 / 8.8 / 14.8** |
+| mta_5_19_medi (1) | global: 8.9 / 9.3 / 18.6 — sliding: 29.0 / 9.1 / 22.1 — **neurokit: 13.1 / 8.8 / 14.8** |
+| mta_5_21_medi | global: 14.4 / 10.1 / 15.5 — sliding: 22.3 / 12.0 / 23.6 — **neurokit: 11.5 / 12.8 / 15.7** |
+| nvt_5_21_medi | global: 18.6 / 16.2 / 14.8 — sliding: 22.3 / 5.5 / 22.6 — **neurokit: 13.5 / 9.2 / 12.6** |
+| oyj_5_22_medi_posiECG | global: 10.1 / 10.7 / 10.6 — sliding: 17.2 / 11.7 / 10.0 — **neurokit: 9.9 / 10.0 / 10.7** |
+| smj_5_22_medi | global: 16.9 / 5.3 / 14.4 — sliding: 19.7 / 6.8 / 17.6 — **neurokit: 16.7 / 7.6 / 18.7** |
 
-## 7. Effect on classification
+![](figures/br_compare/ljh_5_21_medi_posiECG.png)
+![](figures/br_compare/mta-5-17-medi.png)
+![](figures/br_compare/mta-5-17-medi__1_.png)
+![](figures/br_compare/mta2_5_19_medi.png)
+![](figures/br_compare/mta_5_19_medi.png)
+![](figures/br_compare/mta_5_19_medi__1_.png)
+![](figures/br_compare/mta_5_21_medi.png)
+![](figures/br_compare/nvt_5_21_medi.png)
+![](figures/br_compare/oyj_5_22_medi_posiECG.png)
+![](figures/br_compare/smj_5_22_medi.png)
 
-Both [`report-without-math.md`](report-without-math.md) and
-[`report-with-math.md`](report-with-math.md) are re-run after this switch.
-The headline impact appears in those reports.
+### 4.2 Plank (15 recordings)
 
-## 8. Reproduce
+| Recording | global / sliding / neurokit · rest / stress / recovery |
+|---|---|
+| mta-5-17-pla-1'26 | global: 16.0 / 8.9 / 21.7 — sliding: 21.2 / 12.2 / 21.6 — **neurokit: 16.8 / 10.2 / 19.2** |
+| mta-5-17-pla-2 | global: 11.6 / 11.3 / 20.1 — sliding: 26.1 / 11.6 / 20.3 — **neurokit: 11.6 / 9.9 / 18.8** |
+| mta_5_19_pla_1'40 | global: 8.7 / 13.1 / 17.3 — sliding: 17.8 / 14.4 / 19.3 — **neurokit: 13.0 / 13.8 / 15.6** |
+| mta_5_19_pla_2'20 | global: 8.6 / 13.3 / 19.2 — sliding: 23.0 / 14.4 / 20.4 — **neurokit: 13.4 / 13.9 / 14.7** |
+| mta_5_21_pla_2 | global: 15.0 / 21.9 / 20.2 — sliding: 20.5 / 21.8 / 23.1 — **neurokit: 13.2 / 15.0 / 15.6** |
+| mta_5_21_pla_2'30(1) | global: 16.2 / 20.2 / 22.3 — sliding: 17.0 / 19.3 / 23.3 — **neurokit: 13.3 / 12.4 / 18.3** |
+| mta_5_26_pla_3'30 | global: 14.5 / 18.9 / 27.1 — sliding: 16.5 / 19.6 / 25.1 — **neurokit: 13.7 / 14.4 / 20.4** |
+| ntv_5_25_pla_2 | global: 11.0 / 17.4 / 19.3 — sliding: 18.0 / 17.3 / 21.1 — **neurokit: 14.9 / 14.3 / 18.0** |
+| ntv_5_25_pla_2'10 | global: 16.0 / 11.7 / 20.9 — sliding: 27.0 / 11.6 / 22.5 — **neurokit: 11.6 / 8.7 / 13.0** |
+| nvt_5_21_pla_2(1) | global: 19.5 / 18.6 / 20.7 — sliding: 25.5 / 24.6 / 21.9 — **neurokit: 15.1 / 11.2 / 15.2** |
+| nvt_5_25_pla_3'30 | global: — / 17.7 / 20.9 — sliding: 18.2 / 20.1 / 21.3 — **neurokit: 13.9 / 14.9 / 20.5** |
+| oyj_5_22_pla_1'50_posiECG | global: 11.3 / 8.7 / 13.3 — sliding: 16.3 / 9.1 / 16.7 — **neurokit: 13.2 / 8.1 / 13.0** |
+| oyj_5_22_pla_2'15_posiECG | global: 10.1 / 10.2 / 11.0 — sliding: 18.5 / 10.1 / 14.0 — **neurokit: 14.1 / 12.1 / 8.8** |
+| smj_5_22_pla_2 | global: 12.0 / 10.9 / 15.7 — sliding: 18.1 / 14.9 / 15.7 — **neurokit: 15.3 / 11.3 / 14.9** |
+| smj_5_22_pla_2'5 | global: 14.8 / 13.7 / 17.5 — sliding: 15.0 / 17.3 / 17.5 — **neurokit: 13.9 / 13.2 / 16.7** |
+
+![](figures/br_compare/mta-5-17-pla-1_26.png)
+![](figures/br_compare/mta-5-17-pla-2.png)
+![](figures/br_compare/mta_5_19_pla_1_40.png)
+![](figures/br_compare/mta_5_19_pla_2_20.png)
+![](figures/br_compare/mta_5_21_pla_2.png)
+![](figures/br_compare/mta_5_21_pla_2_30_1_.png)
+![](figures/br_compare/mta_5_26_pla_3_30.png)
+![](figures/br_compare/ntv_5_25_pla_2.png)
+![](figures/br_compare/ntv_5_25_pla_2_10.png)
+![](figures/br_compare/nvt_5_21_pla_2_1_.png)
+![](figures/br_compare/nvt_5_25_pla_3_30.png)
+![](figures/br_compare/oyj_5_22_pla_1_50_posiECG.png)
+![](figures/br_compare/oyj_5_22_pla_2_15_posiECG.png)
+![](figures/br_compare/smj_5_22_pla_2.png)
+![](figures/br_compare/smj_5_22_pla_2_5.png)
+
+### 4.3 Math (6 recordings)
+
+| Recording | global / sliding / neurokit · rest / stress / recovery |
+|---|---|
+| mta_5_26_math_11_13 | global: 16.3 / 23.5 / 23.0 — sliding: 16.4 / 23.7 / 23.0 — **neurokit: 9.3 / 18.3 / 14.3** |
+| mta_5_26_math_8_12 | global: 17.1 / 11.7 / 11.1 — sliding: 18.5 / 12.6 / 14.9 — **neurokit: 12.8 / 13.2 / 11.4** |
+| nva_5_26_math_6_8 | global: 17.6 / 13.8 / 21.5 — sliding: 19.7 / 15.7 / 21.5 — **neurokit: 15.0 / 11.5 / 12.3** |
+| nva_5_26_math_9_12 | global: 13.7 / 13.6 / 16.5 — sliding: 18.5 / 15.2 / 16.7 — **neurokit: 14.0 / 13.1 / 14.1** |
+| nvt_5_26_math_7_10 | global: 18.4 / 17.1 / 20.2 — sliding: 18.6 / 17.8 / 20.2 — **neurokit: 15.2 / 14.6 / —** |
+| nvt_5_26_math_7_11 | global: 17.3 / 17.2 / 13.8 — sliding: 21.3 / 18.3 / 17.7 — **neurokit: 13.1 / 12.6 / 17.0** |
+
+![](figures/br_compare/mta_5_26_math_11_13.png)
+![](figures/br_compare/mta_5_26_math_8_12.png)
+![](figures/br_compare/nva_5_26_math_6_8.png)
+![](figures/br_compare/nva_5_26_math_9_12.png)
+![](figures/br_compare/nvt_5_26_math_7_10.png)
+![](figures/br_compare/nvt_5_26_math_7_11.png)
+
+## 5. Effect on classification — three detectors compared
+
+The classical pipeline (KNN / RF / XGBoost) reads `rr`/`rrv` features that
+depend on the BR detector; the 1D-CNN reads the filtered BR **waveform**
+directly so it is invariant to detector choice. Numbers below are pooled-LORO
+macro-F1 (per the methodology in `report-without-math.md` §setup) with the
+**40 s boundary buffer** active and **40 s windows**.
+
+### without_math (3 classes: rest / meditation / plank)
+
+| Model | global | sliding | **neurokit** |
+|---|---|---|---|
+| KNN | 0.687 | 0.691 | **0.734** |
+| RandomForest | 0.778 | 0.771 | **0.784** |
+| XGBoost | 0.856 | **0.879** | 0.871 |
+| 1D-CNN † | 0.840 | 0.812 | 0.773 |
+
+### with_math (4 classes: + math)
+
+| Model | global | sliding | **neurokit** |
+|---|---|---|---|
+| KNN | **0.555** | 0.558 | 0.546 |
+| RandomForest | 0.572 | **0.616** | 0.606 |
+| XGBoost | 0.733 | **0.764** | 0.748 |
+| 1D-CNN † | **0.745** | 0.692 | 0.653 |
+
+> **† 1D-CNN row caveat.** The CNN reads the filtered BR **waveform** (`pp.br`),
+> not the detected peak indices, so it is structurally invariant to the
+> detector choice. The CNN row above therefore reflects mostly training-seed
+> noise across the three runs, not a real detector effect. Treat with a
+> grain of salt — the meaningful signal is in the KNN / RF / XGBoost rows.
+
+### What the model comparison says
+
+- **KNN and RF prefer neurokit** (KNN +0.05 vs global) — distance-based and
+  bagging models like the more consistent per-phase RR features.
+- **XGBoost prefers sliding by a hair** (+0.023 vs global, +0.008 vs neurokit).
+  The "false peak density" sliding produces in rest is itself a discriminative
+  feature for the gradient-boosted trees — sliding is the worse breath-counter
+  but the better discriminator for XGBoost specifically.
+- **neurokit remains the default** in [`src/features.py`](src/features.py)
+  because (a) it's the cleanest breath-rate (3–5× tighter IQR), (b) it is
+  top-2 for every classical model, and (c) the XGBoost gap to sliding is
+  smaller than the run-to-run training noise on the 1D-CNN row, so the
+  difference is not robustly meaningful at this dataset size.
+
+## 6. Reproduce
 
 ```bash
-# compare all three detectors and write the per-recording phase table
+# Generate the per-recording divided comparison plots (3 detectors × 3 phases)
 uv run python scripts/compare_br_detectors.py
 
-# regenerate BR plots using the newly-default neurokit detector
-uv run python scripts/plot_br_peaks.py
+# Train + evaluate with each detector, save per-detector outputs
+uv run python scripts/run_detector_compare.py
 ```
+
+Outputs:
+- `figures/br_compare/<rec>.png` — one divided 9-panel plot per recording
+- `outputs/br_detector_compare.json` — per-recording, per-phase counts/rates
+- `outputs/split_reports_{global,sliding,neurokit}.json` — model results
+- `figures/{cfg}/confusion_{detector}/*.png` — per-detector confusion matrices

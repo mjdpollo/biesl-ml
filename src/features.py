@@ -23,7 +23,9 @@ from .io import Recording, channel_fs, phase_boundaries, resample_uniform
 from .preprocess import (
     clean_nn_intervals,
     classify_s1_s2,
+    detect_br_peaks,
     detect_br_peaks_neurokit,
+    detect_br_peaks_sliding,
     detect_ecg_rpeaks,
     detect_ecg_rpeaks_per_phase,
     detect_pcg_peaks,
@@ -65,7 +67,15 @@ TEMP_FEATURE_NAMES = (
 # boundary is excluded. Buffer=0 means any window that strictly contains a
 # boundary point (e.g. [240, 300] or [300, 360]) is dropped.
 BOUNDARY_TIMES_S = (300.0, 600.0)
-BOUNDARY_BUFFER_S = 0.0
+BOUNDARY_BUFFER_S = 40.0       # exclude windows within ±40 s of each transition
+
+
+# BR peak detector selection (swap-able for ablations). Allowed values:
+# "neurokit" (default), "sliding", "global". Set the module-level variable
+# or pass via the BR_PEAK_METHOD env var (read once on import) — used by
+# scripts/run_split_reports.py and friends.
+import os as _os
+BR_PEAK_METHOD: str = _os.environ.get("BR_PEAK_METHOD", "neurokit")
 
 
 def _window_touches_boundary(t_start: float, t_end: float) -> bool:
@@ -250,11 +260,16 @@ def preprocess_recording(
     br_t0 = float(rec.channels["br"][0, 0])
     br_u = resample_uniform(rec.channels["br"], br_fs_target).astype(np.float64)
     br_f = filter_br(br_u, br_fs_target)
-    # neurokit2's rsp_peaks (biosppy method) wins the detector comparison —
-    # 3-5x tighter per-phase IQR across recordings than either the global
-    # prominence or the sliding-window adaptive detector. See
-    # br-detector-comparison.md.
-    br_peaks = detect_br_peaks_neurokit(br_f, br_fs_target)
+    # BR peak detector is selectable via BR_PEAK_METHOD (module-level / env
+    # var) so we can ablate global vs sliding vs neurokit on the classical
+    # pipeline. neurokit wins the head-to-head — see
+    # br-detector-comparison.md — and is the default.
+    if BR_PEAK_METHOD == "global":
+        br_peaks, _ = detect_br_peaks(br_f, br_fs_target)
+    elif BR_PEAK_METHOD == "sliding":
+        br_peaks = detect_br_peaks_sliding(br_f, br_fs_target)
+    else:
+        br_peaks = detect_br_peaks_neurokit(br_f, br_fs_target)
 
     # Mic @ 2 kHz (matches native rate, Nyquist 1 kHz ≫ 200 Hz PCG band)
     mic_t0 = float(rec.channels["mic"][0, 0])
