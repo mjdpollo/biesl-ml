@@ -1,4 +1,9 @@
-# Report — WITHOUT math (3-class: rest / meditation / plank)
+# Report — WITHOUT math, neurokit detector (3-class: rest / meditation / plank)
+
+> **BR peak detector: `neurokit2.rsp_peaks` (default).** For the sliding-window
+> detector see [`report-without-math-sliding.md`](report-without-math-sliding.md);
+> the head-to-head is in [`br-detector-comparison.md`](br-detector-comparison.md).
+
 
 Purpose: **check the effect of the median-filter BR analysis** on the 3-class
 problem. This run uses the refreshed 31-recording dataset (math recordings

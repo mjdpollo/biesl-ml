@@ -1,4 +1,9 @@
-# Report — WITH math (4-class: rest / meditation / plank / math)
+# Report — WITH math, neurokit detector (4-class: rest / meditation / plank / math)
+
+> **BR peak detector: `neurokit2.rsp_peaks` (default).** For the sliding-window
+> detector see [`report-with-math-sliding.md`](report-with-math-sliding.md);
+> the head-to-head is in [`br-detector-comparison.md`](br-detector-comparison.md).
+
 
 Purpose: **evaluate the current full system** — all 31 recordings, all four
 classes, the 8 features from `features.pdf`, the median-filter BR pipeline, and
