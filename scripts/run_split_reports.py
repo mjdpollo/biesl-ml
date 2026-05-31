@@ -38,6 +38,7 @@ from src.local_eval import (                           # noqa: E402
 )
 from src.raw_windows import local_raw_windows, stack_windows   # noqa: E402
 from src.dl_train import EPOCHS, predict, train_one_fold       # noqa: E402
+from src.exclusions import filter_feature_df, filter_raw_windows   # noqa: E402
 
 SEEDS = (0, 1, 2, 3, 4)
 CONFIGS = {
@@ -205,6 +206,11 @@ def main():
     print("Building classical feature table + CNN raw windows (all recordings) ...")
     df_all = build_feature_table(include_temp=False)
     win_all = local_raw_windows(include_temp=False)
+    n_df0, n_w0 = len(df_all), len(win_all)
+    df_all = filter_feature_df(df_all)
+    win_all = filter_raw_windows(win_all)
+    print(f"  partial exclusions: classical {n_df0}->{len(df_all)}  "
+          f"CNN {n_w0}->{len(win_all)}")
     models = ("knn", "randomforest", "xgboost")
 
     results = {}

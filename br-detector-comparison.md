@@ -21,17 +21,18 @@ detector is actually placing peaks on.
 | **sliding** | `src.preprocess.detect_br_peaks_sliding` | Local prominence floor per 60 s window. |
 | **neurokit** | `src.preprocess.detect_br_peaks_neurokit` | `neurokit2.rsp_peaks(method="biosppy")` — BioSPPy zero-crossing-on-derivative + amplitude threshold. |
 
-## 1. Aggregate per-phase median RR (bpm) across 31 recordings
+## 1. Aggregate per-phase median RR (bpm) across 30 recordings
 
-(IQR in brackets — smaller = more consistent across recordings)
+(IQR in brackets — smaller = more consistent across recordings. Dataset: 30
+files after hardware-quality exclusions, see [`src/exclusions.py`](src/exclusions.py).)
 
 | Detector | rest | stress | recovery |
 |---|---|---|---|
-| global   | 14.7 (IQR 5.7) | 11.7 (IQR 7.6) | 18.0 (IQR 6.4) |
-| sliding  | 18.6 (IQR 5.1) | 12.6 (IQR 7.9) | 20.4 (IQR 4.7) |
-| **neurokit** | **13.4 (IQR 1.1)** | **11.8 (IQR 3.9)** | **14.8 (IQR 4.3)** |
+| global   | 15.0 (IQR 5.1) | 13.8 (IQR 8.1) | 16.8 (IQR 5.5) |
+| sliding  | 18.5 (IQR 4.0) | 15.3 (IQR 8.7) | 19.6 (IQR 6.2) |
+| **neurokit** | **13.7 (IQR 1.8)** | **12.7 (IQR 2.9)** | **14.7 (IQR 4.3)** |
 
-neurokit's IQRs are 3–5× tighter than either alternative — its
+neurokit's IQRs are 2–4× tighter than either alternative — its
 per-recording rates are far more consistent across subjects.
 
 ## 2. Per-stressor sanity check (neurokit, stress-phase rate)
@@ -151,26 +152,26 @@ the high-amplitude stress phase.
 The classical pipeline (KNN / RF / XGBoost) reads `rr`/`rrv` features that
 depend on the BR detector; the 1D-CNN reads the filtered BR **waveform**
 directly so it is invariant to detector choice. Numbers below are pooled-LORO
-macro-F1 (per the methodology in `report-without-math.md` §setup) with the
+macro-F1 (per the methodology in `report-without-math-neurokit.md` §setup) with the
 **40 s boundary buffer** active and **40 s windows**.
 
-### without_math (3 classes: rest / meditation / plank)
+### without_math (3 classes: rest / meditation / plank) — 30-file dataset
 
-| Model | global | sliding | **neurokit** |
+| Model | global | sliding | neurokit |
 |---|---|---|---|
-| KNN | 0.687 | 0.691 | **0.734** |
-| RandomForest | 0.778 | 0.771 | **0.784** |
-| XGBoost | 0.856 | **0.879** | 0.871 |
-| 1D-CNN † | 0.840 | 0.812 | 0.773 |
+| KNN | **0.700** | 0.687 | 0.642 |
+| RandomForest | 0.724 | **0.738** | 0.720 |
+| XGBoost | 0.803 | **0.808** | 0.790 |
+| 1D-CNN † | 0.769 | 0.790 | **0.865** |
 
-### with_math (4 classes: + math)
+### with_math (4 classes: + math) — 30-file dataset
 
-| Model | global | sliding | **neurokit** |
+| Model | global | sliding | neurokit |
 |---|---|---|---|
-| KNN | **0.555** | 0.558 | 0.546 |
-| RandomForest | 0.572 | **0.616** | 0.606 |
-| XGBoost | 0.733 | **0.764** | 0.748 |
-| 1D-CNN † | **0.745** | 0.692 | 0.653 |
+| KNN | **0.569** | 0.539 | 0.520 |
+| RandomForest | 0.529 | **0.578** | 0.527 |
+| XGBoost | 0.651 | **0.658** | 0.633 |
+| 1D-CNN † | 0.674 | 0.636 | **0.725** |
 
 > **† 1D-CNN row caveat.** The CNN reads the filtered BR **waveform** (`pp.br`),
 > not the detected peak indices, so it is structurally invariant to the
@@ -178,19 +179,23 @@ macro-F1 (per the methodology in `report-without-math.md` §setup) with the
 > noise across the three runs, not a real detector effect. Treat with a
 > grain of salt — the meaningful signal is in the KNN / RF / XGBoost rows.
 
-### What the model comparison says
+### What the model comparison says (on the 30-file dataset)
 
-- **KNN and RF prefer neurokit** (KNN +0.05 vs global) — distance-based and
-  bagging models like the more consistent per-phase RR features.
-- **XGBoost prefers sliding by a hair** (+0.023 vs global, +0.008 vs neurokit).
-  The "false peak density" sliding produces in rest is itself a discriminative
-  feature for the gradient-boosted trees — sliding is the worse breath-counter
-  but the better discriminator for XGBoost specifically.
-- **neurokit remains the default** in [`src/features.py`](src/features.py)
-  because (a) it's the cleanest breath-rate (3–5× tighter IQR), (b) it is
-  top-2 for every classical model, and (c) the XGBoost gap to sliding is
-  smaller than the run-to-run training noise on the 1D-CNN row, so the
-  difference is not robustly meaningful at this dataset size.
+- **XGBoost is barely separable across detectors** (0.018 spread, well within
+  run-to-run noise) — pick whichever, the gradient-boosted trees handle all
+  three.
+- **KNN prefers global** (+0.058 vs neurokit on 3-class). RF prefers sliding
+  by a hair. Different classical families pick different detectors as
+  optimum, but the spread is small.
+- **The 1D-CNN nominally prefers neurokit by a wide margin** (+0.075 on
+  3-class). However the CNN reads the filtered BR *waveform*, not peaks, so
+  its row is structurally detector-invariant — the variation is training-seed
+  noise across reruns (architecture init, dataloader shuffle, augmentation).
+  Don't read this as a real detector effect.
+- **neurokit remains the recommended default** in [`src/features.py`](src/features.py)
+  because (a) its breath-rate IQR is 2–4× tighter than either alternative, so
+  it gives the most consistent physiological reading; (b) classical losses
+  vs the best-per-model detector are < 0.06 macro-F1.
 
 ## 6. Reproduce
 
