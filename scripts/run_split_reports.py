@@ -3,12 +3,14 @@
 
 4 classes: rest / meditation / plank / math (full dataset).
 Models: KNN / RandomForest / XGBoost / 1D-CNN.
-Protocols: LORO (leave one recording out) and a 5-seed 70:15:15 stratified
-random window split.
+Protocol: LORO (leave one recording out) only. Random 70:15:15 has been
+dropped — at a 2-s anchor step, windows 2 s apart are near-duplicates so
+the random split leaks heavily and the score collapses to ~1.0 for every
+model. LORO is the only honest cross-subject estimate.
 
 Writes:
   outputs/split_reports.json                       — all numbers
-  figures/with_math/confusion/*.png                — row-normalized % heatmaps
+  figures/with_math/confusion/loro__*.png          — row-normalized % heatmaps
 
 Usage:
     uv run python scripts/run_split_reports.py
@@ -224,35 +226,34 @@ def main():
         print(f"  classical windows: {len(df)}  {dict(Counter(df['activity']))}")
         print(f"  CNN windows:       {len(X)}  {dict(Counter(le.inverse_transform(y)))}")
 
+        # Random 70:15:15 was dropped: at a 2-s anchor step, windows are
+        # near-duplicates of their neighbours, so a window-stratified random
+        # split leaks heavily and the score collapses to ~1.0 for every
+        # model. LORO is the only honest cross-subject estimate.
         res = {
             "classes": classes,
             "classical": {
                 "loro": classical_loro(df, classes, models),
-                "random": classical_random(df, classes, models),
             },
             "cnn": {
                 "loro": cnn_loro(X, y, recs, classes, le),
-                "random": cnn_random(X, y, classes, le),
             },
         }
         results[cfg] = res
 
-        # confusion PNGs
+        # confusion PNGs (LORO only)
         figdir = Path("figures") / cfg / "confusion"
-        for proto in ("loro", "random"):
-            for m in models:
-                _save_cm_png(res["classical"][proto][m]["confusion_total"], classes,
-                             f"{m.upper()}  {proto}  ({cfg})", figdir / f"{proto}__{m}.png")
-            _save_cm_png(res["cnn"][proto]["confusion_total"], classes,
-                         f"1D-CNN  {proto}  ({cfg})", figdir / f"{proto}__cnn.png")
+        for m in models:
+            _save_cm_png(res["classical"]["loro"][m]["confusion_total"], classes,
+                         f"{m.upper()}  LORO  ({cfg})", figdir / f"loro__{m}.png")
+        _save_cm_png(res["cnn"]["loro"]["confusion_total"], classes,
+                     f"1D-CNN  LORO  ({cfg})", figdir / "loro__cnn.png")
 
         # console summary
-        print(f"\n  {'model':<14s}{'LORO f1':>9s}{'rand f1':>9s}")
+        print(f"\n  {'model':<14s}{'LORO f1':>9s}")
         for m in models:
-            print(f"  {m:<14s}{res['classical']['loro'][m]['mean_macro_f1']:>9.3f}"
-                  f"{res['classical']['random'][m]['mean_macro_f1']:>9.3f}")
-        print(f"  {'1D-CNN':<14s}{res['cnn']['loro']['mean_macro_f1']:>9.3f}"
-              f"{res['cnn']['random']['mean_macro_f1']:>9.3f}")
+            print(f"  {m:<14s}{res['classical']['loro'][m]['mean_macro_f1']:>9.3f}")
+        print(f"  {'1D-CNN':<14s}{res['cnn']['loro']['mean_macro_f1']:>9.3f}")
 
     Path("outputs").mkdir(exist_ok=True)
     with open("outputs/split_reports.json", "w") as fh:

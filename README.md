@@ -5,10 +5,11 @@ Machine-learning experiments on multimodal physiological signals captured from a
 **Task.** Per-window **4-class** classification — `rest` / `meditation` / `plank` / `math`. The post-stressor `recovery` phase is dropped.
 **Features (9).** `csi, hr, hrv_rmssd, sd1, sd2, sd1_sd2, ss, rr, rrv`. LF / HF / LF-HF were replaced with Poincaré non-linear features after the window length dropped below what Welch reliably resolves.
 **Windowing.** Anchor-based on a 2-s slide; each feature is computed on its own centered window (HR 10 s; RR/CSI 40 s; RMSSD / Poincaré / RRV 60 s). Asymmetric −10 / +30 s buffer around the 5-min cue.
-**Headline result.** 1D-CNN reaches **pooled-LORO macro-F1 0.767**; XGBoost trails at 0.690. Both reports live under [`report/`](report/):
+**Headline result.** 1D-CNN reaches **pooled-LORO macro-F1 0.767** (neurokit BR) / 0.756 (sliding BR); XGBoost reaches 0.690 / **0.718** under the same swap. Reports live under [`report/`](report/):
 
-- [`report/ml-report.md`](report/ml-report.md) — model numbers, per-class F1, confusion matrices.
-- [`report/poincare-report.md`](report/poincare-report.md) — Poincaré scatter plots per recording × phase, plus aggregate per-stressor figures.
+- [`report/ml-report.md`](report/ml-report.md) — neurokit BR detector (default). Model numbers, per-class F1, confusion matrices.
+- [`report/ml-report-sliding.md`](report/ml-report-sliding.md) — sliding BR detector. Head-to-head deltas vs neurokit.
+- [`report/poincare-report.md`](report/poincare-report.md) — Poincaré scatter plots per recording × phase, plus aggregate per-stressor figures (detector-invariant — applies to both runs).
 
 ## Dataset
 

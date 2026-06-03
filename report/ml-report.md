@@ -37,18 +37,15 @@
   (400 trees, depth 4); 1D-CNN on ECG + filtered Resp + Mic Shannon-
   envelope raw channels (3 × 10 000 samples per window, 40 s @ 250 Hz,
   AMP + AdamW + cosine LR + per-recording robust z-score).
-- **Protocols.**
-  - **LORO** — leave one recording out (31 folds). Macro-F1 is **pooled**
-    over all held-out predictions (every recording covers only `rest` +
-    one stressor, so per-fold averaging would charge zeros for 2-3
-    classes absent from each fold's test set).
-  - **Random 70:15:15** — 5-seed stratified random window split on the
-    full anchor set. **Heavily inflated** by 2-s overlap leakage —
-    quoted only for reference.
+- **Protocol — LORO only.** Leave one recording out (31 folds). Macro-F1
+  is **pooled** over all held-out predictions (every recording covers
+  only `rest` + one stressor, so per-fold averaging would charge zeros
+  for 2-3 classes absent from each fold's test set). The 5-seed random
+  70:15:15 split has been dropped — at a 2-s anchor step, neighbouring
+  windows are near-duplicates so random splitting leaks heavily and the
+  score collapses to ~1.0 for every model. It carries no information.
 
-## Headline results
-
-### Pooled-LORO macro-F1
+## Headline — pooled-LORO macro-F1
 
 | Model | acc | macro-F1 | F1[rest] | F1[medi] | F1[plank] | F1[math] |
 |---|---:|---:|---:|---:|---:|---:|
@@ -56,20 +53,6 @@
 | RandomForest     | 0.684 | 0.629 | 0.77 | 0.75 | 0.51 | 0.48 |
 | XGBoost          | 0.732 | 0.690 | 0.80 | **0.85** | 0.58 | 0.53 |
 | **1D-CNN**       | **0.773** | **0.767** | **0.85** | 0.72 | **0.96** | **0.55** |
-
-### Random 70:15:15 (5 seeds; **inflated**)
-
-| Model | acc | macro-F1 |
-|---|---:|---:|
-| KNN              | 0.955 | 0.943 |
-| RandomForest     | 0.966 | 0.956 |
-| XGBoost          | 0.971 | 0.965 |
-| **1D-CNN**       | **0.998** | **0.998** |
-
-The CNN's near-perfect random-split score is the clearest demonstration
-yet of 2-s-overlap leakage: a window at `t=302` is essentially a
-duplicate of one at `t=300`, and the random split puts neighbours in
-different splits. **Quote LORO for any cross-subject claim.**
 
 ## Confusion matrices (LORO, row-normalized)
 
@@ -97,12 +80,6 @@ LORO row-normalized matrices in numeric form (rows = true class):
 | plank       | 0.06 | 0.01 | 0.93 | 0.01 |
 | math        | 0.33 | 0.12 | 0.01 | 0.55 |
 
-## Confusion matrices (random split, 5 seeds, row-normalized)
-
-| KNN | RandomForest | XGBoost | 1D-CNN |
-|---|---|---|---|
-| ![](figures/confusion/random__knn.png) | ![](figures/confusion/random__randomforest.png) | ![](figures/confusion/random__xgboost.png) | ![](figures/confusion/random__cnn.png) |
-
 ## Findings
 
 1. **The 1D-CNN wins LORO macro-F1 (0.767)** ahead of XGBoost (0.690).
@@ -126,10 +103,6 @@ LORO row-normalized matrices in numeric form (rows = true class):
 5. **`rest` is reliably called rest** by every model (F1 ≥ 0.73). The
    remaining 12–16 % of rest mass spills into `math`, never into the
    physical-effort classes — physiology is consistent here.
-6. **Random-split macro-F1 is meaningless for cross-subject claims.**
-   It collapses to ~1.0 for every model at this anchor density. Use it
-   only as an upper-bound sanity check that each model can fit the
-   training distribution.
 
 ## Comparison to the previous pipeline (40-s 50 % overlap, 8 features)
 
@@ -152,7 +125,7 @@ class alone improves by 0.33 F1.
 
 ```bash
 # 1. Refresh data from Google Drive (if needed; see README.md)
-# 2. Rebuild features + raw windows + run all 4 models, 2 protocols:
+# 2. Rebuild features + raw windows + run all 4 models under LORO:
 BR_PEAK_METHOD=neurokit uv run python scripts/run_split_reports.py
 
 # 3. (Optional) Cross-detector ablation (global / sliding / neurokit):
