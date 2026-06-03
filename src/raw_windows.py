@@ -1,16 +1,16 @@
-"""Raw windowed signals for the 1D-CNN, aligned with features.pdf.
+"""Raw windowed signals for the 1D-CNN.
 
-Produces fixed-length float32 tensors per local recording window:
+Produces fixed-length float32 tensors, one per anchor on the same 2-s anchor
+grid the classical features use (see `src.features`). Each window is `WINDOW_S`
+seconds long (40 s) CENTERED on its anchor:
     channel 0: ECG, LP-150-Hz filtered + detrended, 250 Hz
-    channel 1: Respiration, PDF filter chain (detrend → MA → Cheby II → BHP), 250 Hz
+    channel 1: Respiration, median-baseline + 0.5-s smoothing, 250 Hz
     channel 2: Microphone Shannon-energy envelope, 250 Hz
-    channel 3: Skin temperature linearly upsampled to 250 Hz   (only when include_temp=True)
+    channel 3: Skin temperature linearly upsampled to 250 Hz  (only when include_temp=True)
 
-Window length: 60 s (matches the classical pipeline so LORO folds are
-directly comparable). Per-recording robust z-score per channel.
+Per-recording robust z-score per channel.
 
-This module is currently LOCAL-ONLY; WESAD inputs are intentionally omitted
-per user instruction.
+Local-only — WESAD inputs are intentionally omitted.
 """
 from __future__ import annotations
 
@@ -20,7 +20,13 @@ from typing import Iterable
 
 import numpy as np
 
-from .features import OVERLAP, WINDOW_S, _window_touches_boundary, preprocess_recording
+from .features import (
+    ANCHOR_STEP_S,
+    MAX_FEATURE_WINDOW_S,
+    WINDOW_S,
+    _anchor_in_boundary,
+    preprocess_recording,
+)
 from .io import (
     Recording,
     list_recordings,
@@ -110,31 +116,37 @@ def windows_from_local_recording(
     phases = phase_boundaries(rec)
     out: list[RawWindow] = []
     ecg_t0 = float(rec.channels["ecg"][0, 0])
-    step = WINDOW_S * (1.0 - OVERLAP)
+
+    # Anchor-based windowing — same anchor grid as the classical features
+    # (2-s step, 60-s longest feature window). CNN raw windows are 40 s
+    # CENTERED on each anchor. We also require the classical-pipeline
+    # safety margin (`MAX_FEATURE_WINDOW_S/2` from each phase boundary) so
+    # the CNN training set is on the same rows as the feature table.
+    half_max_classical = MAX_FEATURE_WINDOW_S / 2.0
+    half_cnn = WINDOW_S / 2.0
 
     for phase_name, (p_start, p_end) in phases.items():
-        if p_end - p_start < WINDOW_S:
-            continue
-        # 'recovery' is not part of the taxonomy any more — drop it entirely.
         if phase_name == "recovery":
             continue
         activity = assign_activity(phase_name, rec.stressor)
         if activity not in ACTIVITY_TO_LABEL:
             continue
-        t = p_start - ecg_t0
-        end_local = p_end - ecg_t0
-        while t + WINDOW_S <= end_local + 1e-6:
-            # Absolute time of the window edges (for boundary check) is the
-            # ECG-local time + ecg_t0; but phase_boundaries returns absolute
-            # times, so the local time t corresponds to absolute t + ecg_t0.
-            abs_t = t + ecg_t0
-            if _window_touches_boundary(abs_t, abs_t + WINDOW_S):
-                t += step
+        anchor_lo = p_start + half_max_classical
+        anchor_hi = p_end - half_max_classical
+        if anchor_hi < anchor_lo:
+            continue
+        n_anchors = int(np.floor((anchor_hi - anchor_lo) / ANCHOR_STEP_S)) + 1
+        anchors = anchor_lo + ANCHOR_STEP_S * np.arange(n_anchors)
+
+        for abs_t in anchors:
+            abs_t = float(abs_t)
+            if _anchor_in_boundary(abs_t):
                 continue
-            a = int(round(t * TARGET_FS))
+            # 40-s CNN window centered on the anchor, in ECG-local time.
+            t_local_lo = (abs_t - half_cnn) - ecg_t0
+            a = int(round(t_local_lo * TARGET_FS))
             b = a + WINDOW_N
             if a < 0 or b > n_target:
-                t += step
                 continue
             chs = [ecg_250[a:b], resp_250[a:b], mic_250[a:b]]
             if include_temp:
@@ -147,9 +159,8 @@ def windows_from_local_recording(
                 source="local",
                 subject=rec.subject,
                 rec_name=rec.name,
-                t_start=t,
+                t_start=abs_t,                # store the ANCHOR time
             ))
-            t += step
 
     return out
 

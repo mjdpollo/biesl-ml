@@ -1,15 +1,14 @@
 #!/usr/bin/env python
-"""Train + evaluate two class configurations and emit confusion-matrix PNGs.
+"""Train + evaluate the 4-class model and emit confusion-matrix PNGs.
 
-  without_math : 3 classes (rest / meditation / plank)   — math recordings dropped
-  with_math    : 4 classes (rest / meditation / plank / math)  — full dataset
-
-For each config: KNN / RandomForest / XGBoost / 1D-CNN, under LORO (leave one
-recording out) and a 5-seed 70:15:15 stratified random window split.
+4 classes: rest / meditation / plank / math (full dataset).
+Models: KNN / RandomForest / XGBoost / 1D-CNN.
+Protocols: LORO (leave one recording out) and a 5-seed 70:15:15 stratified
+random window split.
 
 Writes:
-  outputs/split_reports.json          — all numbers
-  figures/{without_math,with_math}/confusion/*.png  — row-normalized % heatmaps
+  outputs/split_reports.json                       — all numbers
+  figures/with_math/confusion/*.png                — row-normalized % heatmaps
 
 Usage:
     uv run python scripts/run_split_reports.py
@@ -42,7 +41,6 @@ from src.exclusions import filter_feature_df, filter_raw_windows   # noqa: E402
 
 SEEDS = (0, 1, 2, 3, 4)
 CONFIGS = {
-    "without_math": ["rest", "meditation", "plank"],
     "with_math":    ["rest", "meditation", "plank", "math"],
 }
 

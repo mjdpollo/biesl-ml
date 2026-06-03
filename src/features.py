@@ -1,16 +1,22 @@
-"""Per-window feature extraction per features.pdf.
+"""Per-window feature extraction.
 
-Exactly eight features per window — no others:
+Nine features per window — no others:
     csi         : S2/S1 ratio of Shannon-energy peaks paired to ECG R-peaks
     hr          : 60_000 / mean(NN_ms)
     hrv_rmssd   : root-mean-square of successive NN differences (ms)
-    hrv_lf      : Welch power in 0.04-0.15 Hz on the interpolated tachogram
-    hrv_hf      : Welch power in 0.15-0.40 Hz
-    hrv_lf_hf   : hrv_lf / hrv_hf
+    sd1         : Poincaré short-axis SD = SDSD / √2  (ms; ≈ short-term HRV)
+    sd2         : Poincaré long-axis SD  = √(2·SDNN² − SD1²)  (ms)
+    sd1_sd2     : SD1 / SD2 ratio (lower → more sympathetic / rigid)
+    ss          : Stress Score = 1000 / SD2  (Naranjo / Kubios convention)
     rr          : 60 / mean(breath interval, s)        — breaths per minute
     rrv         : std of the last 5 breath intervals (s)
 
-Window length is **60 s** (PDF: HRV LF/HF needs ≥ 1 min). 50 % overlap.
+LF / HF / LF-HF were removed: they require a 2-5 min window for a stable
+Welch spectrum and were unreliable at 40 s. Poincaré non-linear features
+(SD1 / SD2 / SS) are reported reliable in ≥ 60 s windows but degrade
+gracefully at 40 s (they are pure NN-interval statistics, not spectral).
+
+Window length is set by `WINDOW_S` (40 s). 50 % overlap.
 """
 from __future__ import annotations
 
@@ -36,18 +42,40 @@ from .preprocess import (
 )
 
 
-WINDOW_S = 40.0           # per request; below the 60 s the HRV LF/HF Welch
-                          # step ideally wants — LF resolution is coarser at
-                          # 40 s, so treat hrv_lf / hrv_lf_hf as approximate.
-OVERLAP = 0.5
+# All rows share a common 2-s anchor step. Each feature is then computed over
+# its OWN window length, centered on the anchor — different physiological
+# quantities stabilise at different timescales (HR converges in ~10 s;
+# Poincaré / RMSSD / RRV need ~60 s).
+ANCHOR_STEP_S = 2.0
+
+# Per-feature window lengths (seconds), centered on the anchor.
+FEATURE_WINDOWS_S: dict[str, float] = {
+    "csi":       40.0,
+    "hr":        10.0,
+    "hrv_rmssd": 60.0,
+    "sd1":       60.0,
+    "sd2":       60.0,
+    "sd1_sd2":   60.0,
+    "ss":        60.0,
+    "rr":        40.0,
+    "rrv":       60.0,
+}
+MAX_FEATURE_WINDOW_S: float = max(FEATURE_WINDOWS_S.values())
+
+# Legacy aliases (some downstream code, the CNN, and reports still reference
+# a single window length — keep it pointed at the longest feature window so
+# raw-window extents don't lose information vs the classical features.
+WINDOW_S = 40.0          # the 1D-CNN raw-window length (centered on anchor)
+OVERLAP = 1.0 - ANCHOR_STEP_S / WINDOW_S      # implied for legacy callers
 
 FEATURE_NAMES = (
     "csi",
     "hr",
     "hrv_rmssd",
-    "hrv_lf",
-    "hrv_hf",
-    "hrv_lf_hf",
+    "sd1",
+    "sd2",
+    "sd1_sd2",
+    "ss",
     "rr",
     "rrv",
 )
@@ -61,13 +89,14 @@ TEMP_FEATURE_NAMES = (
     "temp_slope_Cps",
 )
 
-# Skip windows whose extent touches the 5-min or 10-min protocol transitions
-# (rest → stress at 300 s, stress → recovery at 600 s). The patient reports
-# discomfort around these transitions; ±BOUNDARY_BUFFER_S around each
-# boundary is excluded. Buffer=0 means any window that strictly contains a
-# boundary point (e.g. [240, 300] or [300, 360]) is dropped.
-BOUNDARY_TIMES_S = (300.0, 600.0)
-BOUNDARY_BUFFER_S = 40.0       # exclude windows within ±40 s of each transition
+# Skip windows whose extent touches the rest → stress transition at 300 s.
+# Patient reports asymmetric discomfort: 10 s of overlap *before* the cue and
+# 30 s of overlap *after*. The 600 s (stress → recovery) boundary is not
+# explicitly skipped because the recovery phase is already dropped from the
+# dataset (see assign_activity in src.pipeline).
+BOUNDARY_TIMES_S = (300.0,)
+BOUNDARY_BUFFER_PRE_S = 10.0
+BOUNDARY_BUFFER_POST_S = 30.0
 
 
 # BR peak detector selection (swap-able for ablations). Allowed values:
@@ -79,11 +108,22 @@ BR_PEAK_METHOD: str = _os.environ.get("BR_PEAK_METHOD", "neurokit")
 
 
 def _window_touches_boundary(t_start: float, t_end: float) -> bool:
-    """True iff the window [t_start, t_end] touches any protocol boundary
-    (within ±BOUNDARY_BUFFER_S). Used to drop boundary-spanning windows.
+    """True iff the window [t_start, t_end] overlaps the asymmetric exclusion
+    zone around any protocol boundary: [b − BOUNDARY_BUFFER_PRE_S,
+    b + BOUNDARY_BUFFER_POST_S].
     """
     for b in BOUNDARY_TIMES_S:
-        if t_start <= b + BOUNDARY_BUFFER_S and t_end >= b - BOUNDARY_BUFFER_S:
+        if t_start <= b + BOUNDARY_BUFFER_POST_S and t_end >= b - BOUNDARY_BUFFER_PRE_S:
+            return True
+    return False
+
+
+def _anchor_in_boundary(t_anchor: float) -> bool:
+    """True iff anchor time `t_anchor` lies inside the asymmetric exclusion
+    zone around any protocol boundary.
+    """
+    for b in BOUNDARY_TIMES_S:
+        if b - BOUNDARY_BUFFER_PRE_S <= t_anchor <= b + BOUNDARY_BUFFER_POST_S:
             return True
     return False
 
@@ -117,64 +157,90 @@ def _rmssd(nn_ms: np.ndarray) -> float:
     return float(np.sqrt(np.mean(d * d)))
 
 
-def _lf_hf(nn_ms: np.ndarray, fs_interp: float = 4.0) -> tuple[float, float]:
-    """Welch PSD on a 4 Hz interpolated tachogram. Returns (LF, HF) in ms²."""
-    if len(nn_ms) < 8:
-        return float("nan"), float("nan")
-    # cumulative time of each NN endpoint, in seconds
-    t = np.cumsum(nn_ms) / 1000.0
-    if t[-1] - t[0] < 30.0:                # too short for stable spectrum
-        return float("nan"), float("nan")
-    grid = np.arange(t[0], t[-1], 1.0 / fs_interp)
-    if len(grid) < 32:
-        return float("nan"), float("nan")
-    tach = np.interp(grid, t, nn_ms)
-    tach = tach - tach.mean()
-    nperseg = min(len(tach), int(60 * fs_interp))     # 60-s segments where possible
-    f, pxx = signal.welch(tach, fs=fs_interp, nperseg=nperseg, window="hann")
+def _poincare(nn_ms: np.ndarray) -> tuple[float, float, float, float]:
+    """Poincaré non-linear HRV features (SD1, SD2, SD1/SD2, SS).
 
-    def band(lo: float, hi: float) -> float:
-        m = (f >= lo) & (f < hi)
-        if not m.any():
-            return float("nan")
-        return float(np.trapezoid(pxx[m], f[m]))
+    SD1 = SD of NN points perpendicular to the identity line
+        = sqrt(0.5 * var(diff(NN))) = SDSD / √2
+    SD2 = SD of NN points along the identity line
+        = sqrt(2 * SDNN² − SD1²)
+    SS  = 1000 / SD2  (Naranjo "stress score" used by Kubios).
 
-    return band(0.04, 0.15), band(0.15, 0.40)
+    Returns NaN for any feature that cannot be computed from the input.
+    """
+    nan = float("nan")
+    if len(nn_ms) < 3:
+        return nan, nan, nan, nan
+    sdnn = float(np.std(nn_ms, ddof=1))
+    sdsd = float(np.std(np.diff(nn_ms), ddof=1))
+    sd1 = sdsd / np.sqrt(2.0)
+    var_diff = 2.0 * sdnn * sdnn - sd1 * sd1
+    sd2 = float(np.sqrt(var_diff)) if var_diff > 0 else nan
+    sd1_sd2 = float(sd1 / sd2) if (np.isfinite(sd2) and sd2 > 0) else nan
+    ss = float(1000.0 / sd2) if (np.isfinite(sd2) and sd2 > 0) else nan
+    return float(sd1), sd2, sd1_sd2, ss
 
 
 # ---- per-window feature extractors ----------------------------------------
 
-def hrv_window_features(rpeaks_idx_window: np.ndarray, fs_ecg: float) -> dict[str, float]:
-    """Compute hr / hrv_rmssd / hrv_lf / hrv_hf / hrv_lf_hf from R-peaks
-    falling inside the window. Returns NaN for features that cannot be
-    computed (too few peaks)."""
+def hr_window_feature(rpeaks_idx_window: np.ndarray, fs_ecg: float) -> dict[str, float]:
+    """Mean HR (bpm) from R-peaks falling in the short HR window.
+
+    HR is fast-converging (a 10-s window covers ~12 beats at 70 bpm) so the
+    Poincaré / RMSSD pieces, which need 60 s, are computed separately below.
+    """
     nn = clean_nn_intervals(rpeaks_idx_window, fs_ecg)
     if len(nn) < 2:
-        return {k: float("nan") for k in ("hr", "hrv_rmssd", "hrv_lf", "hrv_hf", "hrv_lf_hf")}
-    hr = _hr_from_nn(nn)
-    rmssd = _rmssd(nn)
-    lf, hf = _lf_hf(nn)
-    lf_hf = float(lf / hf) if (np.isfinite(lf) and np.isfinite(hf) and hf > 0) else float("nan")
-    return dict(hr=hr, hrv_rmssd=rmssd, hrv_lf=lf, hrv_hf=hf, hrv_lf_hf=lf_hf)
+        return {"hr": float("nan")}
+    return {"hr": _hr_from_nn(nn)}
 
 
-def rr_window_features(
-    peaks_idx_in_window: np.ndarray, fs_br: float,
-) -> dict[str, float]:
-    """RR (breath rate, bpm) and RRV (std of last 5 breath intervals, seconds)."""
-    if len(peaks_idx_in_window) < 2:
-        return dict(rr=float("nan"), rrv=float("nan"))
-    intervals_s = np.diff(peaks_idx_in_window) / fs_br
-    intervals_s = intervals_s[(intervals_s > 1.0) & (intervals_s < 12.0)]
-    if len(intervals_s) < 1:
-        return dict(rr=float("nan"), rrv=float("nan"))
-    rr_bpm = 60.0 / float(np.mean(intervals_s))
-    if len(intervals_s) < 2:
-        rrv = float("nan")
-    else:
-        last5 = intervals_s[-5:]
-        rrv = float(np.std(last5, ddof=0))      # PDF: "deviations in these intervals"
-    return dict(rr=rr_bpm, rrv=rrv)
+def poincare_window_features(rpeaks_idx_window: np.ndarray, fs_ecg: float) -> dict[str, float]:
+    """RMSSD + SD1/SD2/SD1_SD2/SS from R-peaks falling in the long Poincaré
+    window (60 s). All NaN if fewer than 3 NN intervals survive cleaning.
+    """
+    keys = ("hrv_rmssd", "sd1", "sd2", "sd1_sd2", "ss")
+    nn = clean_nn_intervals(rpeaks_idx_window, fs_ecg)
+    if len(nn) < 3:
+        return {k: float("nan") for k in keys}
+    sd1, sd2, sd1_sd2, ss = _poincare(nn)
+    return dict(
+        hrv_rmssd=_rmssd(nn),
+        sd1=sd1, sd2=sd2, sd1_sd2=sd1_sd2, ss=ss,
+    )
+
+
+def _breath_intervals(peaks_idx: np.ndarray, fs_br: float) -> np.ndarray:
+    if len(peaks_idx) < 2:
+        return np.empty(0, dtype=float)
+    iv = np.diff(peaks_idx) / fs_br
+    return iv[(iv > 1.0) & (iv < 12.0)]
+
+
+def rr_window_feature(peaks_idx_in_window: np.ndarray, fs_br: float) -> dict[str, float]:
+    """RR (breath rate, bpm) from the 40-s BR-peak window."""
+    iv = _breath_intervals(peaks_idx_in_window, fs_br)
+    if len(iv) < 1:
+        return {"rr": float("nan")}
+    return {"rr": 60.0 / float(np.mean(iv))}
+
+
+def rrv_window_feature(peaks_idx_in_window: np.ndarray, fs_br: float) -> dict[str, float]:
+    """RRV (std of the last 5 breath intervals, seconds) from the 60-s BR
+    window. Returns NaN if fewer than 2 valid intervals are present.
+    """
+    iv = _breath_intervals(peaks_idx_in_window, fs_br)
+    if len(iv) < 2:
+        return {"rrv": float("nan")}
+    return {"rrv": float(np.std(iv[-5:], ddof=0))}
+
+
+# Legacy combined helper retained for any external callers (deprecated).
+def rr_window_features(peaks_idx_in_window: np.ndarray, fs_br: float) -> dict[str, float]:
+    out = {}
+    out.update(rr_window_feature(peaks_idx_in_window, fs_br))
+    out.update(rrv_window_feature(peaks_idx_in_window, fs_br))
+    return out
 
 
 def csi_window_features(s1_amps: np.ndarray, s2_amps: np.ndarray) -> dict[str, float]:
@@ -298,82 +364,114 @@ def _slice_peaks_by_time(peaks_idx: np.ndarray, fs: float, t0: float,
     return peaks_idx[mask]
 
 
+def _csi_for_window(pp: Preprocessed, t_lo: float, t_hi: float) -> dict[str, float]:
+    """Compute CSI over absolute time window [t_lo, t_hi]: slice Shannon-energy
+    envelope + paired-S1/S2 detection against R-peaks falling in the window.
+    """
+    rp_window = _slice_peaks_by_time(pp.rpeaks, pp.fs_ecg, pp.ecg_t0, t_lo, t_hi)
+    mic_t0 = pp.mic_t0
+    def t_to_idx(t_abs: float) -> int:
+        return int(round((t_abs - mic_t0) * pp.fs_mic))
+    i0_mic = max(0, t_to_idx(t_lo))
+    i1_mic = min(len(pp.se), t_to_idx(t_hi))
+    if i1_mic <= i0_mic:
+        return {"csi": float("nan")}
+    se_slice = pp.se[i0_mic:i1_mic]
+    pcg_slice = pp.pcg_peaks[(pp.pcg_peaks >= i0_mic) & (pp.pcg_peaks < i1_mic)] - i0_mic
+    r_abs_t = pp.ecg_t0 + rp_window / pp.fs_ecg
+    r_se_idx = np.round((r_abs_t - t_lo) * pp.fs_mic).astype(int)
+    r_se_idx = r_se_idx[(r_se_idx >= 0) & (r_se_idx < len(se_slice))]
+    s1_amps, s2_amps = classify_s1_s2(se_slice, pp.fs_mic, pcg_slice, r_se_idx)
+    return csi_window_features(s1_amps, s2_amps)
+
+
 def windows_for_recording(
     pp: Preprocessed,
-    window_s: float = WINDOW_S,
-    overlap: float = OVERLAP,
     *,
     include_temp: bool = False,
 ) -> list[Window]:
+    """Anchor-based per-feature windowing.
+
+    Anchors step every `ANCHOR_STEP_S` seconds across each non-recovery
+    phase. At each anchor `t`, every feature is computed over its own window
+    `[t − W/2, t + W/2]` (W from `FEATURE_WINDOWS_S`).
+
+    An anchor is dropped if:
+      * the asymmetric protocol-boundary buffer covers it
+        (`_anchor_in_boundary` — defaults to [290 s, 330 s] around the rest →
+        stress transition), OR
+      * the **longest** feature window centered on the anchor would extend
+        outside the phase the anchor sits in (no cross-phase mixing).
+    """
     rec = pp.rec
     phases = phase_boundaries(rec)
-    step = window_s * (1.0 - overlap)
+    half_max = MAX_FEATURE_WINDOW_S / 2.0
+    half: dict[str, float] = {k: v / 2.0 for k, v in FEATURE_WINDOWS_S.items()}
+
     windows: list[Window] = []
 
     for phase_name, (p_start, p_end) in phases.items():
-        if p_end - p_start < window_s:
-            continue
-        # 'recovery' is no longer part of the taxonomy — drop those windows entirely.
         if phase_name == "recovery":
             continue
-        t = p_start
-        while t + window_s <= p_end + 1e-6:
-            t_end = t + window_s
+        anchor_lo = p_start + half_max
+        anchor_hi = p_end - half_max
+        if anchor_hi < anchor_lo:
+            continue
 
-            # Skip windows that touch the 5-min / 10-min protocol boundaries
-            # — patient reports discomfort around the transitions.
-            if _window_touches_boundary(t, t_end):
-                t += step
+        # iterate anchors on a clean 2-s grid
+        n_anchors = int(np.floor((anchor_hi - anchor_lo) / ANCHOR_STEP_S)) + 1
+        anchors = anchor_lo + ANCHOR_STEP_S * np.arange(n_anchors)
+
+        for t_anchor in anchors:
+            t_anchor = float(t_anchor)
+            if _anchor_in_boundary(t_anchor):
                 continue
 
-            # ECG: slice R-peaks, compute HR/HRV
-            ecg_window_peaks = _slice_peaks_by_time(
-                pp.rpeaks, pp.fs_ecg, pp.ecg_t0, t, t_end,
-            )
             feats: dict[str, float] = {}
-            feats.update(hrv_window_features(ecg_window_peaks, pp.fs_ecg))
 
-            # BR: slice breath peaks within window, compute RR/RRV
-            br_window_peaks = _slice_peaks_by_time(
-                pp.br_peaks, pp.fs_br, pp.br_t0, t, t_end,
-            )
-            feats.update(rr_window_features(br_window_peaks, pp.fs_br))
+            # HR (10-s window)
+            t_lo, t_hi = t_anchor - half["hr"], t_anchor + half["hr"]
+            rp = _slice_peaks_by_time(pp.rpeaks, pp.fs_ecg, pp.ecg_t0, t_lo, t_hi)
+            feats.update(hr_window_feature(rp, pp.fs_ecg))
 
-            # Mic: take Shannon-energy envelope slice + paired S1/S2 detection
-            # against the ECG R-peaks expressed at the SE sample rate.
-            mic_t0 = pp.mic_t0
-            t_to_idx = lambda t_abs: int(round((t_abs - mic_t0) * pp.fs_mic))
-            i0_mic, i1_mic = max(0, t_to_idx(t)), min(len(pp.se), t_to_idx(t_end))
-            se_slice = pp.se[i0_mic:i1_mic]
-            pcg_slice = pp.pcg_peaks[
-                (pp.pcg_peaks >= i0_mic) & (pp.pcg_peaks < i1_mic)
-            ] - i0_mic
-            # convert R-peak indices to SE-sample frame inside the window
-            r_abs_t = pp.ecg_t0 + ecg_window_peaks / pp.fs_ecg
-            r_se_idx = np.round((r_abs_t - t) * pp.fs_mic).astype(int)
-            r_se_idx = r_se_idx[(r_se_idx >= 0) & (r_se_idx < len(se_slice))]
-            s1_amps, s2_amps = classify_s1_s2(
-                se_slice, pp.fs_mic, pcg_slice, r_se_idx,
-            )
-            feats.update(csi_window_features(s1_amps, s2_amps))
+            # RMSSD + Poincaré (60-s window)
+            t_lo, t_hi = t_anchor - half["hrv_rmssd"], t_anchor + half["hrv_rmssd"]
+            rp = _slice_peaks_by_time(pp.rpeaks, pp.fs_ecg, pp.ecg_t0, t_lo, t_hi)
+            feats.update(poincare_window_features(rp, pp.fs_ecg))
 
-            # Optional temperature ablation features.
+            # RR (40-s window)
+            t_lo, t_hi = t_anchor - half["rr"], t_anchor + half["rr"]
+            bp = _slice_peaks_by_time(pp.br_peaks, pp.fs_br, pp.br_t0, t_lo, t_hi)
+            feats.update(rr_window_feature(bp, pp.fs_br))
+
+            # RRV (60-s window)
+            t_lo, t_hi = t_anchor - half["rrv"], t_anchor + half["rrv"]
+            bp = _slice_peaks_by_time(pp.br_peaks, pp.fs_br, pp.br_t0, t_lo, t_hi)
+            feats.update(rrv_window_feature(bp, pp.fs_br))
+
+            # CSI (40-s window)
+            t_lo, t_hi = t_anchor - half["csi"], t_anchor + half["csi"]
+            feats.update(_csi_for_window(pp, t_lo, t_hi))
+
+            # Optional temperature ablation features over the longest window
             if include_temp:
-                feats.update(temp_features_window(rec.channels["temp"], t, t_end))
+                t_lo, t_hi = t_anchor - half_max, t_anchor + half_max
+                feats.update(temp_features_window(rec.channels["temp"], t_lo, t_hi))
 
-            # Sanitize inf/None -> NaN so downstream imputation handles them.
             for k, v in list(feats.items()):
                 if v is None or not np.isfinite(v):
                     feats[k] = float("nan")
 
-            # ENFORCE the feature schema — PDF features always; temp only if requested.
             keep = list(FEATURE_NAMES) + (list(TEMP_FEATURE_NAMES) if include_temp else [])
             feats = {k: feats.get(k, float("nan")) for k in keep}
 
+            # t_start / t_end are kept anchor-equal so downstream tools
+            # treating the row as a point sample don't accidentally double
+            # the window length.
             windows.append(Window(
                 rec_name=rec.name, subject=rec.subject, stressor=rec.stressor,
-                phase=phase_name, t_start=t, t_end=t_end, features=feats,
+                phase=phase_name, t_start=t_anchor, t_end=t_anchor,
+                features=feats,
             ))
-            t += step
 
     return windows

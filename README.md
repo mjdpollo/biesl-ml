@@ -2,9 +2,13 @@
 
 Machine-learning experiments on multimodal physiological signals captured from a wearable device.
 
-**Task.** Per-window 3-class classification — `rest` / `meditation` / `plank`. The post-stressor `recovery` phase is dropped from the dataset.
-**Features.** The eight parameters defined in [`features.pdf`](features.pdf), nothing else.
-**Headline result.** XGBoost on those 8 features under leave-one-recording-out reaches **macro-F1 0.817**. Full numbers and confusion matrices in [`report.md`](report.md).
+**Task.** Per-window **4-class** classification — `rest` / `meditation` / `plank` / `math`. The post-stressor `recovery` phase is dropped.
+**Features (9).** `csi, hr, hrv_rmssd, sd1, sd2, sd1_sd2, ss, rr, rrv`. LF / HF / LF-HF were replaced with Poincaré non-linear features after the window length dropped below what Welch reliably resolves.
+**Windowing.** Anchor-based on a 2-s slide; each feature is computed on its own centered window (HR 10 s; RR/CSI 40 s; RMSSD / Poincaré / RRV 60 s). Asymmetric −10 / +30 s buffer around the 5-min cue.
+**Headline result.** 1D-CNN reaches **pooled-LORO macro-F1 0.767**; XGBoost trails at 0.690. Both reports live under [`report/`](report/):
+
+- [`report/ml-report.md`](report/ml-report.md) — model numbers, per-class F1, confusion matrices.
+- [`report/poincare-report.md`](report/poincare-report.md) — Poincaré scatter plots per recording × phase, plus aggregate per-stressor figures.
 
 ## Dataset
 
@@ -42,7 +46,7 @@ Each recording is a tab-separated text file with four time-aligned channel pairs
 | ---------- | ---------- | ------------ | -------------------------------------------------- |
 | Microphone | 0, 1       | ~2000 Hz     | `csi` (Shannon-energy envelope → S1/S2 ratio)      |
 | Breathing  | 2, 3       | ~500 Hz      | `rr`, `rrv` (slope-based peak detector)            |
-| ECG        | 4, 5       | ~500 Hz      | `hr`, `hrv_rmssd`, `hrv_lf`, `hrv_hf`, `hrv_lf_hf` |
+| ECG        | 4, 5       | ~500 Hz      | `hr`, `hrv_rmssd`, Poincaré `sd1` / `sd2` / `sd1_sd2` / `ss` |
 | Skin temp  | 6, 7       | ~1 Hz        | **not used** (excluded per features.pdf)           |
 
 Each channel has its own time vector — they are not row-aligned and must be resampled to a common grid before training. The pipeline does this internally.
@@ -62,14 +66,14 @@ Every recording is `rest → stress → recovery`:
 ```
 biesl-ml/
 ├── data/                   # raw recordings (gitignored)
-│   └── _old/               # previous dataset, kept for reference
-├── figures/                # tracked plots (confusion matrices, etc.)
+│   ├── _excluded/          # full-file exclusions (hardware / duplicates)
+│   └── _old_pre_*/         # previous dataset snapshots
+├── figures/                # tracked plots (confusion matrices, Poincaré, BR detector compare)
 ├── notebooks/              # exploratory analysis
-├── scripts/                # one-off runners (confusion matrices, etc.)
-├── src/                    # pipeline code (loaders, preprocessing, models)
-├── features.pdf            # spec for the 8 features used by the project
-├── report.md               # teammate-facing report with embedded figures
-├── confusion-matrices.md   # 8 confusion matrices (3 classical × 2 protocols + 1D-CNN × 2)
+├── scripts/                # runners (run_split_reports.py, dump_preprocessed_nn.py, plot_poincare.py, …)
+├── src/                    # pipeline code (loaders, preprocessing, features, models)
+├── report/                 # self-contained ML + Poincaré reports with embedded figures
+├── features.pdf            # original 8-feature spec (superseded — see ml-report.md)
 ├── README.md
 └── pyproject.toml
 ```
@@ -87,29 +91,33 @@ uv sync --group dev        # + gdown (for re-downloading the dataset)
 ## End-to-end commands
 
 ```bash
-# Classical models (KNN / RandomForest / XGBoost), LORO + 70:15:15 random split
-uv run python -m src.local_eval
+# All 4 models (KNN / RF / XGBoost / 1D-CNN), 4-class, LORO + 70:15:15 random split.
+# Default BR detector is neurokit; set BR_PEAK_METHOD=sliding|global to swap.
+BR_PEAK_METHOD=neurokit uv run python scripts/run_split_reports.py
 
-# 1D-CNN, LORO + 70:15:15 random split (RTX 5090 in ~1 min, CPU in ~10)
-uv run python -m src.dl_train
+# BR-detector ablation (runs all 3 detectors back-to-back)
+uv run python scripts/run_detector_compare.py
 
-# Regenerate confusion matrices + heatmap PNGs in figures/confusion/
-uv run python scripts/show_confusion_matrices.py > confusion-matrices.md
+# Dump per-recording NN intervals for Poincaré analysis
+uv run python scripts/dump_preprocessed_nn.py
+
+# Render Poincaré scatter PNGs into figures/poincare/
+uv run python scripts/plot_poincare.py
 ```
 
-Output JSONs land in `outputs/` (gitignored):
+Outputs:
 
-| File                                | Contents                                          |
-| ----------------------------------- | ------------------------------------------------- |
-| `outputs/local_loro.json`           | classical, per-recording LORO + summary           |
-| `outputs/local_randomsplit.json`    | classical, 5-seed 70:15:15 random split + summary |
-| `outputs/dl_local_loro.json`        | 1D-CNN, per-recording LORO + summary              |
-| `outputs/dl_local_randomsplit.json` | 1D-CNN, 5-seed 70:15:15 random split + summary    |
+| File                                          | Contents                                              |
+| --------------------------------------------- | ----------------------------------------------------- |
+| `outputs/split_reports.json`                  | All numbers (per-class F1, confusion, per-fold)       |
+| `outputs/preprocessed_nn.json`                | Per-recording × phase NN-interval / BR-interval pools |
+| `figures/with_math/confusion/*.png`           | Confusion-matrix heatmaps (4 models × 2 protocols)    |
+| `figures/poincare/*.png`                      | Poincaré scatter plots (per-recording + aggregate)    |
 
 ## Where to look first
 
-- [`report.md`](report.md) — the teammate-facing report (tables, all 8 confusion-matrix PNGs).
-- [`confusion-matrices.md`](confusion-matrices.md) — confusion matrices as markdown tables.
-- [`src/features.py`](src/features.py) — the 8-feature implementation that matches `features.pdf`.
-- [`src/preprocess.py`](src/preprocess.py) — filters and peak detectors per the spec.
-- [`src/local_eval.py`](src/local_eval.py) / [`src/dl_train.py`](src/dl_train.py) — evaluation drivers.
+- [`report/ml-report.md`](report/ml-report.md) — 4-class numbers, per-class F1, confusion matrices.
+- [`report/poincare-report.md`](report/poincare-report.md) — Poincaré per recording × phase, with SD1 / SD2 / SS values.
+- [`src/features.py`](src/features.py) — 9 features + anchor-based per-feature windowing.
+- [`src/preprocess.py`](src/preprocess.py) — filters and peak detectors.
+- [`src/raw_windows.py`](src/raw_windows.py) — CNN raw windows (40 s, 3 ch).

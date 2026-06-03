@@ -17,14 +17,11 @@ from typing import Iterable
 # kind = "t_lt"          → drop windows whose t_start < value
 # kind = "drop_activity" → drop windows whose activity equals value
 PARTIAL_EXCLUSIONS: tuple[tuple[str, str, object], ...] = (
-    # 0-150 s contains motion artefact / sensor settling
-    ("mta_5_21_medi",            "t_lt",          150.0),
-    # 0-140 s contains motion artefact / sensor settling
-    ("mta_5_26_math_8_12",       "t_lt",          140.0),
-    # plank phase has a hardware glitch; rest period is fine
-    ("oyj_5_22_pla_2'15_posiECG", "drop_activity", "plank"),
-    ("oyj_5_22_pla_1'50_posiECG", "drop_activity", "plank"),
-    # rest phase noisy; math phase is fine
+    # rest phase noisy / unusable; stress phase is fine
+    ("mta_5_21_medi",             "drop_activity", "rest"),
+    ("oyj_5_22_medi_posiECG",     "drop_activity", "rest"),
+    ("nnn_5_29_pla_3",            "drop_activity", "rest"),
+    ("tnq_5_29_pla_2'20",         "drop_activity", "rest"),
     ("tnq_5_29_math_7_12",        "drop_activity", "rest"),
 )
 

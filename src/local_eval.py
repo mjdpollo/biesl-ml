@@ -1,15 +1,13 @@
-"""Local-only LORO evaluation with the features.pdf feature set.
+"""Local-only LORO evaluation with the current feature set.
 
 For each local recording R in turn:
     train on (local \ {R}), test on R, repeat for KNN / RF / XGBoost.
 
 Two configurations are reported side by side:
-    (i)  PDF features only            — csi, hr, hrv_rmssd, hrv_lf, hrv_hf,
-                                        hrv_lf_hf, rr, rrv  (8 features)
-    (ii) PDF + temperature ablation   — above + temp_mean_C, temp_std_C,
-                                        temp_slope_Cps      (11 features)
-
-This is the answer to "compare results with temperature vs without".
+    (i)  primary feature set          — csi, hr, hrv_rmssd, sd1, sd2,
+                                        sd1_sd2, ss, rr, rrv   (9 features)
+    (ii) primary + temperature        — above + temp_mean_C, temp_std_C,
+                                        temp_slope_Cps         (12 features)
 """
 from __future__ import annotations
 
