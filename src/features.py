@@ -1,22 +1,23 @@
 """Per-window feature extraction.
 
-Nine features per window — no others:
+Eight features per window — no others:
     csi         : S2/S1 ratio of Shannon-energy peaks paired to ECG R-peaks
     hr          : 60_000 / mean(NN_ms)
     hrv_rmssd   : root-mean-square of successive NN differences (ms)
-    sd1         : Poincaré short-axis SD = SDSD / √2  (ms; ≈ short-term HRV)
-    sd2         : Poincaré long-axis SD  = √(2·SDNN² − SD1²)  (ms)
-    sd1_sd2     : SD1 / SD2 ratio (lower → more sympathetic / rigid)
-    ss          : Stress Score = 1000 / SD2  (Naranjo / Kubios convention)
+    sd2_sd1     : Poincaré SD2 / SD1   (higher → more sympathetic dominance)
+    sd1_x_sd2   : SD1 · SD2            (Poincaré ellipse area / π, ms²)
+    ss          : Stress Score = 1000 / SD2  (Naranjo / Kubios)
     rr          : 60 / mean(breath interval, s)        — breaths per minute
     rrv         : std of the last 5 breath intervals (s)
 
-LF / HF / LF-HF were removed: they require a 2-5 min window for a stable
-Welch spectrum and were unreliable at 40 s. Poincaré non-linear features
-(SD1 / SD2 / SS) are reported reliable in ≥ 60 s windows but degrade
-gracefully at 40 s (they are pure NN-interval statistics, not spectral).
+SD1 and SD2 are NOT in the feature set — SD1 ≈ RMSSD / √2 (redundant
+with RMSSD) and SS ≡ 1000 / SD2 (redundant with SD2). They're still
+computed internally to derive `sd2_sd1`, `sd1_x_sd2`, `ss`.
 
-Window length is set by `WINDOW_S` (40 s). 50 % overlap.
+LF / HF / LF-HF were removed earlier: they need a 2-5 min window for a
+stable Welch spectrum and were unreliable at 40 s.
+
+Anchor-based windowing — see `windows_for_recording`.
 """
 from __future__ import annotations
 
@@ -49,16 +50,19 @@ from .preprocess import (
 ANCHOR_STEP_S = 2.0
 
 # Per-feature window lengths (seconds), centered on the anchor.
+# SD1 ≈ RMSSD/√2 and SS = 1000/SD2, so SD1 and SD2 are intentionally NOT
+# in the training-feature set — they would be redundant with RMSSD / SS.
+# They're still computed internally to derive SD2/SD1 and SD1·SD2 (the
+# Poincaré ellipse area, modulo π).
 FEATURE_WINDOWS_S: dict[str, float] = {
-    "csi":       40.0,
-    "hr":        10.0,
-    "hrv_rmssd": 60.0,
-    "sd1":       60.0,
-    "sd2":       60.0,
-    "sd1_sd2":   60.0,
-    "ss":        60.0,
-    "rr":        40.0,
-    "rrv":       60.0,
+    "csi":         40.0,
+    "hr":          10.0,
+    "hrv_rmssd":   60.0,
+    "sd2_sd1":     60.0,
+    "sd1_x_sd2":   60.0,
+    "ss":          60.0,
+    "rr":          40.0,
+    "rrv":         60.0,
 }
 MAX_FEATURE_WINDOW_S: float = max(FEATURE_WINDOWS_S.values())
 
@@ -72,9 +76,8 @@ FEATURE_NAMES = (
     "csi",
     "hr",
     "hrv_rmssd",
-    "sd1",
-    "sd2",
-    "sd1_sd2",
+    "sd2_sd1",
+    "sd1_x_sd2",
     "ss",
     "rr",
     "rrv",
@@ -104,7 +107,7 @@ BOUNDARY_BUFFER_POST_S = 30.0
 # or pass via the BR_PEAK_METHOD env var (read once on import) — used by
 # scripts/run_split_reports.py and friends.
 import os as _os
-BR_PEAK_METHOD: str = _os.environ.get("BR_PEAK_METHOD", "neurokit")
+BR_PEAK_METHOD: str = _os.environ.get("BR_PEAK_METHOD", "sliding")
 
 
 def _window_touches_boundary(t_start: float, t_end: float) -> bool:
@@ -157,28 +160,41 @@ def _rmssd(nn_ms: np.ndarray) -> float:
     return float(np.sqrt(np.mean(d * d)))
 
 
-def _poincare(nn_ms: np.ndarray) -> tuple[float, float, float, float]:
-    """Poincaré non-linear HRV features (SD1, SD2, SD1/SD2, SS).
+def _poincare(nn_ms: np.ndarray) -> dict[str, float]:
+    """Poincaré non-linear HRV features.
 
-    SD1 = SD of NN points perpendicular to the identity line
-        = sqrt(0.5 * var(diff(NN))) = SDSD / √2
-    SD2 = SD of NN points along the identity line
-        = sqrt(2 * SDNN² − SD1²)
-    SS  = 1000 / SD2  (Naranjo "stress score" used by Kubios).
+    Always computed (returned in the dict, even though SD1 / SD2 themselves
+    are *not* in the training feature set):
 
-    Returns NaN for any feature that cannot be computed from the input.
+        sd1       : SD of NN points perpendicular to identity line
+                    = √(½·Var(diff(NN))) = SDSD / √2                  (ms)
+        sd2       : SD of NN points along identity line
+                    = √(2·SDNN² − SD1²)                                (ms)
+
+    Derived features (these ARE in the training feature set):
+
+        sd2_sd1   : SD2 / SD1   (higher → more sympathetic dominance)
+        sd1_x_sd2 : SD1 · SD2   (Poincaré ellipse area / π, ms²)
+        ss        : 1000 / SD2  (Naranjo / Kubios stress score)
+
+    NaN where the input is too short or numerically ill-conditioned.
     """
     nan = float("nan")
+    out = {"sd1": nan, "sd2": nan, "sd2_sd1": nan, "sd1_x_sd2": nan, "ss": nan}
     if len(nn_ms) < 3:
-        return nan, nan, nan, nan
+        return out
     sdnn = float(np.std(nn_ms, ddof=1))
     sdsd = float(np.std(np.diff(nn_ms), ddof=1))
     sd1 = sdsd / np.sqrt(2.0)
     var_diff = 2.0 * sdnn * sdnn - sd1 * sd1
     sd2 = float(np.sqrt(var_diff)) if var_diff > 0 else nan
-    sd1_sd2 = float(sd1 / sd2) if (np.isfinite(sd2) and sd2 > 0) else nan
-    ss = float(1000.0 / sd2) if (np.isfinite(sd2) and sd2 > 0) else nan
-    return float(sd1), sd2, sd1_sd2, ss
+    out["sd1"] = float(sd1)
+    out["sd2"] = sd2
+    if np.isfinite(sd2) and sd2 > 0 and sd1 > 0:
+        out["sd2_sd1"] = float(sd2 / sd1)
+        out["sd1_x_sd2"] = float(sd1 * sd2)
+        out["ss"] = float(1000.0 / sd2)
+    return out
 
 
 # ---- per-window feature extractors ----------------------------------------
@@ -196,17 +212,21 @@ def hr_window_feature(rpeaks_idx_window: np.ndarray, fs_ecg: float) -> dict[str,
 
 
 def poincare_window_features(rpeaks_idx_window: np.ndarray, fs_ecg: float) -> dict[str, float]:
-    """RMSSD + SD1/SD2/SD1_SD2/SS from R-peaks falling in the long Poincaré
-    window (60 s). All NaN if fewer than 3 NN intervals survive cleaning.
+    """RMSSD + SD2/SD1 + SD1·SD2 + SS from R-peaks falling in the long
+    Poincaré window (60 s). SD1 and SD2 are derived internally but not
+    returned (they would be redundant with RMSSD and SS in training).
+    All NaN if fewer than 3 NN intervals survive cleaning.
     """
-    keys = ("hrv_rmssd", "sd1", "sd2", "sd1_sd2", "ss")
+    keys = ("hrv_rmssd", "sd2_sd1", "sd1_x_sd2", "ss")
     nn = clean_nn_intervals(rpeaks_idx_window, fs_ecg)
     if len(nn) < 3:
         return {k: float("nan") for k in keys}
-    sd1, sd2, sd1_sd2, ss = _poincare(nn)
+    poin = _poincare(nn)
     return dict(
         hrv_rmssd=_rmssd(nn),
-        sd1=sd1, sd2=sd2, sd1_sd2=sd1_sd2, ss=ss,
+        sd2_sd1=poin["sd2_sd1"],
+        sd1_x_sd2=poin["sd1_x_sd2"],
+        ss=poin["ss"],
     )
 
 

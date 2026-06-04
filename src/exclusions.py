@@ -16,14 +16,7 @@ from typing import Iterable
 # (rec_name, kind, value)
 # kind = "t_lt"          → drop windows whose t_start < value
 # kind = "drop_activity" → drop windows whose activity equals value
-PARTIAL_EXCLUSIONS: tuple[tuple[str, str, object], ...] = (
-    # rest phase noisy / unusable; stress phase is fine
-    ("mta_5_21_medi",             "drop_activity", "rest"),
-    ("oyj_5_22_medi_posiECG",     "drop_activity", "rest"),
-    ("nnn_5_29_pla_3",            "drop_activity", "rest"),
-    ("tnq_5_29_pla_2'20",         "drop_activity", "rest"),
-    ("tnq_5_29_math_7_12",        "drop_activity", "rest"),
-)
+PARTIAL_EXCLUSIONS: tuple[tuple[str, str, object], ...] = ()
 
 
 def filter_feature_df(df):

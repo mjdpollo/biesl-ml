@@ -3,13 +3,14 @@
 Machine-learning experiments on multimodal physiological signals captured from a wearable device.
 
 **Task.** Per-window **4-class** classification — `rest` / `meditation` / `plank` / `math`. The post-stressor `recovery` phase is dropped.
-**Features (9).** `csi, hr, hrv_rmssd, sd1, sd2, sd1_sd2, ss, rr, rrv`. LF / HF / LF-HF were replaced with Poincaré non-linear features after the window length dropped below what Welch reliably resolves.
+**Data.** Curated 16-file allowlist (4 subjects) — the user reviewed Poincaré plots from a larger set and kept only the clean recordings.
+**Features (8).** `csi, hr, hrv_rmssd, sd2_sd1, sd1_x_sd2, ss, rr, rrv`. SD1 / SD2 are computed internally to derive `sd2_sd1`, `sd1_x_sd2`, and `ss = 1000/SD2`; the raw axes are not fed to the model (SD1 ≈ RMSSD/√2, SD2 = 1000/SS — both already covered).
 **Windowing.** Anchor-based on a 2-s slide; each feature is computed on its own centered window (HR 10 s; RR/CSI 40 s; RMSSD / Poincaré / RRV 60 s). Asymmetric −10 / +30 s buffer around the 5-min cue.
-**Headline result.** 1D-CNN reaches **pooled-LORO macro-F1 0.767** (neurokit BR) / 0.756 (sliding BR); XGBoost reaches 0.690 / **0.718** under the same swap. Reports live under [`report/`](report/):
+**BR detector.** Sliding-window local-p90 (`BR_PEAK_METHOD=sliding`, default).
+**Headline result.** 1D-CNN reaches **pooled-LORO macro-F1 0.686**; XGBoost wins on accuracy (0.794, macro-F1 0.652). Reports live under [`report/`](report/):
 
-- [`report/ml-report.md`](report/ml-report.md) — neurokit BR detector (default). Model numbers, per-class F1, confusion matrices.
-- [`report/ml-report-sliding.md`](report/ml-report-sliding.md) — sliding BR detector. Head-to-head deltas vs neurokit.
-- [`report/poincare-report.md`](report/poincare-report.md) — Poincaré scatter plots per recording × phase, plus aggregate per-stressor figures (detector-invariant — applies to both runs).
+- [`report/ml-report.md`](report/ml-report.md) — model numbers, per-class F1, confusion matrices.
+- [`report/poincare-report.md`](report/poincare-report.md) — Poincaré scatter plots per recording × phase, plus aggregate per-stressor figures.
 
 ## Dataset
 
@@ -47,7 +48,7 @@ Each recording is a tab-separated text file with four time-aligned channel pairs
 | ---------- | ---------- | ------------ | -------------------------------------------------- |
 | Microphone | 0, 1       | ~2000 Hz     | `csi` (Shannon-energy envelope → S1/S2 ratio)      |
 | Breathing  | 2, 3       | ~500 Hz      | `rr`, `rrv` (slope-based peak detector)            |
-| ECG        | 4, 5       | ~500 Hz      | `hr`, `hrv_rmssd`, Poincaré `sd1` / `sd2` / `sd1_sd2` / `ss` |
+| ECG        | 4, 5       | ~500 Hz      | `hr`, `hrv_rmssd`, Poincaré `sd2_sd1` / `sd1_x_sd2` / `ss` |
 | Skin temp  | 6, 7       | ~1 Hz        | **not used** (excluded per features.pdf)           |
 
 Each channel has its own time vector — they are not row-aligned and must be resampled to a common grid before training. The pipeline does this internally.

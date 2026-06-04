@@ -36,7 +36,8 @@ def _ellipse(ax, nn_ms, color):
     nn = np.asarray(nn_ms, dtype=float)
     if len(nn) < 3:
         return float("nan"), float("nan")
-    sd1, sd2, _, _ = _poincare(nn)
+    poin = _poincare(nn)
+    sd1, sd2 = poin["sd1"], poin["sd2"]
     if not (np.isfinite(sd1) and np.isfinite(sd2)):
         return sd1, sd2
     mean = float(np.mean(nn))
