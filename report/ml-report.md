@@ -158,3 +158,92 @@ Outputs:
 | `figures/with_math/confusion/loro__*.png` | confusion-matrix heatmaps |
 | `outputs/preprocessed_nn.json` | per-recording NN intervals + BR breath intervals |
 | `figures/poincare/*.png` | Poincaré scatter plots (per-recording + aggregate) |
+
+## Comparison vs the previous sliding run
+
+Previous sliding run (commit `cde004d`, 31 recordings, 9 features) vs
+current sliding run (this report, 16 curated recordings, 8 features).
+
+### Setup deltas
+
+| | previous sliding | **current (curated)** |
+|---|---|---|
+| recordings    | 31 | **16** |
+| subjects      | 10 (ljh, mta, mta2, nnn, ntv, nva, nvt, oyj, smj, tnq) | **4** (mta, mta2, nvt, smj) |
+| windows total | 6 020 | **3 556** |
+| rest windows  | 3 146 | 1 936 |
+| medi windows  | 960 | 720 |
+| plank windows | 594 (5 subjects) | **180 (mta only, 4 recordings)** |
+| math windows  | 1 320 (6 subjects) | 720 (2 subjects: mta + nvt) |
+| features      | 9 (incl. raw sd1, sd2, sd1_sd2) | **8** (raw axes dropped; sd2_sd1 + sd1_x_sd2 added) |
+
+### Pooled-LORO macro-F1
+
+| Model | previous (31 recs / 9 feats) | **current (16 recs / 8 feats)** | Δ |
+|---|---:|---:|---:|
+| KNN          | 0.642 | 0.534 | **−0.108** |
+| RandomForest | 0.665 | 0.615 | **−0.050** |
+| XGBoost      | 0.718 | 0.652 | **−0.066** |
+| 1D-CNN       | 0.756 | 0.686 | **−0.070** |
+
+### Per-class F1 — XGBoost
+
+| Class | prev | curr | Δ |
+|---|---:|---:|---:|
+| rest        | 0.83 | **0.87** | +0.04 |
+| meditation  | 0.90 | **0.91** | +0.01 |
+| **plank**   | **0.58** | 0.27 | **−0.31** |
+| math        | 0.56 | 0.59 | +0.03 |
+
+### Per-class F1 — 1D-CNN
+
+| Class | prev | curr | Δ |
+|---|---:|---:|---:|
+| rest        | 0.82 | **0.85** | +0.03 |
+| meditation  | 0.80 | 0.68 | **−0.12** |
+| **plank**   | **0.94** | 0.51 | **−0.43** |
+| math        | 0.47 | **0.71** | **+0.24** |
+
+### What moved and why
+
+1. **Macro-F1 dropped for every model.** The driver is almost entirely the
+   plank class. Going from 5 plank subjects (594 windows) down to **1
+   plank subject** (`mta`, 180 windows) means LORO no longer has *any*
+   cross-subject plank evidence — when an `mta` plank recording is held
+   out, only 3 other `mta` plank recordings remain. Plank F1 collapsed
+   by 0.31 (XGBoost) and 0.43 (CNN).
+
+2. **rest and medi got slightly *better*.** Both classes still have
+   multiple subjects (4 medi subjects, 4 rest sources), and the
+   curated set has cleaner Poincaré signatures (see `nvt_5_21_medi`,
+   `smj_5_22_medi`). XGBoost meditation F1 nudged from 0.90 → 0.91;
+   rest from 0.83 → 0.87.
+
+3. **Math went in opposite directions for the two model families.**
+   Classical XGBoost stayed flat (0.56 → 0.59). The CNN **gained
+   substantially** on math (0.47 → 0.71) — the four `mta_6_3_math_*`
+   recordings give the conv stack very consistent within-subject
+   waveform patterns to lock onto, even if it generalises to only one
+   other subject (`nvt`).
+
+4. **CNN meditation regressed.** F1 dropped 0.80 → 0.68 because the
+   CNN now confuses 16 % of medi windows with math (per the confusion
+   matrix). With math windows being almost all `mta_6_3_math_*` and
+   medi including `mta_6_4_medi*`, the CNN may be over-relying on `mta`
+   waveform fingerprints that aren't class-specific. This is a textbook
+   over-curation symptom — fewer subjects → easier within-subject
+   patterns become spuriously class-discriminative.
+
+5. **Feature schema change (9 → 8) is not the cause.** RMSSD already
+   carried SD1's information and SS already carried SD2's; dropping
+   them was a redundancy fix, not a feature-strength change. The new
+   `sd1_x_sd2` (ellipse area) adds genuinely new content vs the old
+   schema.
+
+### TL;DR
+
+The curated dataset is **cleaner per recording, but narrower in subject
+coverage** — most of the macro-F1 loss is paid by plank. If we want
+both clean data *and* cross-subject plank generalisation, we need more
+plank recordings from non-`mta` subjects in the next round of data
+collection.
