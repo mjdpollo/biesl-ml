@@ -3,11 +3,12 @@
 Machine-learning experiments on multimodal physiological signals captured from a wearable device.
 
 **Task.** Per-window **4-class** classification — `rest` / `meditation` / `plank` / `math`. The post-stressor `recovery` phase is dropped.
-**Data.** Curated 16-file allowlist (4 subjects) — the user reviewed Poincaré plots from a larger set and kept only the clean recordings.
-**Features (8).** `csi, hr, hrv_rmssd, sd2_sd1, sd1_x_sd2, ss, rr, rrv`. SD1 / SD2 are computed internally to derive `sd2_sd1`, `sd1_x_sd2`, and `ss = 1000/SD2`; the raw axes are not fed to the model (SD1 ≈ RMSSD/√2, SD2 = 1000/SS — both already covered).
+**Data.** Curated 20-file allowlist (5 subjects: `mta`, `mta2`, `ljh`, `nvt`, `oyj`, `smj`). Stressor coverage: 6 medi + 6 plank + 8 math.
+**Features (8).** `csi, hr, hrv_rmssd, sd2_sd1, sd1_x_sd2, ss, rr, rrv`. SD1 / SD2 are computed internally; the raw axes aren't fed to the model (SD1 ≈ RMSSD/√2, SD2 = 1000/SS — both already covered).
 **Windowing.** Anchor-based on a 2-s slide; each feature is computed on its own centered window (HR 10 s; RR/CSI 40 s; RMSSD / Poincaré / RRV 60 s). Asymmetric −10 / +30 s buffer around the 5-min cue.
-**BR detector.** Sliding-window local-p90 (`BR_PEAK_METHOD=sliding`, default).
-**Headline result.** 1D-CNN reaches **pooled-LORO macro-F1 0.686**; XGBoost wins on accuracy (0.794, macro-F1 0.652). Reports live under [`report/`](report/):
+**ECG filter.** Wavelet (sym4 DWT + soft-threshold denoise) keeping the 5–45 Hz band — replaces the prior Butterworth 1–150 Hz + mains-notch chain.
+**BR detector.** Sliding-window local-p90 (default).
+**Headline.** See [`report/ml-report.md`](report/ml-report.md). Reports under [`report/`](report/):
 
 - [`report/ml-report.md`](report/ml-report.md) — model numbers, per-class F1, confusion matrices.
 - [`report/poincare-report.md`](report/poincare-report.md) — Poincaré scatter plots per recording × phase, plus aggregate per-stressor figures.

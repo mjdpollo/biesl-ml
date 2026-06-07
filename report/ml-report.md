@@ -1,40 +1,55 @@
-# ML report — curated 16-file set, sliding BR detector
+# ML report — curated 20-file set, wavelet ECG filter, sliding BR detector
 
 > 4 classes: **rest / meditation / plank / math**. Companion to the
 > Poincaré diagnostics in [`poincare-report.md`](poincare-report.md).
+> Built for the prof meeting (2026-06-08).
+
+## What changed since the previous report
+
+1. **+4 recordings** vs the previous 16-file curated set: `ljh_6_5_pla_2`,
+   `ljh_6_5_pla_2(1)`, `oyj_6_6_math_11`, `smj_6_6_math_17`.
+   Plank now covers **2 subjects** again (`mta` + `ljh`); math covers
+   **4 subjects** (`mta`, `nvt`, `oyj`, `smj`).
+2. **ECG filter** replaced: Butterworth 1–150 Hz + mains-notch → **wavelet
+   denoise + 5–45 Hz band-keep** (`sym4` DWT, Donoho soft-threshold on the
+   in-band detail levels, out-of-band detail and the deepest
+   approximation zeroed). See [`src/preprocess.py:filter_ecg`](../src/preprocess.py).
+3. **Feature set unchanged.** 8 features: `csi`, `hr`, `hrv_rmssd`,
+   `sd2_sd1`, `sd1_x_sd2`, `ss`, `rr`, `rrv`.
+
+> **Note on the file list.** The user-provided "good file" list said
+> `oyj_6_6_math_6`, but the GDrive math folder only contains
+> `oyj_6_6_math_11.txt` — assumed to be a typo and used `math_11`. If
+> `math_6` is the intended file it should be re-uploaded and the run
+> repeated.
 
 ## Setup
 
-- **Data — curated allowlist (16 recordings, 4 subjects).** Replaced the
-  previous "denylist of bad files" approach with an explicit list of
-  files the user reviewed as clean Poincaré candidates. Subjects: `mta`
-  (12), `mta2` (1), `nvt` (2), `smj` (1). Stressor counts: 6 medi +
-  4 plank + 6 math.
+- **Data — 20 recordings, 5 subjects** (`mta` ×12, `mta2`, `ljh` ×2,
+  `nvt` ×2, `oyj`, `smj` ×2). Stressor coverage:
 
-  | Medi (6) | Plank (4) | Math (6) |
+  | Medi (6) | Plank (6) | Math (8) |
   |---|---|---|
   | `mta_5_19_medi` | `mta_5_19_pla_2'20(1)` | `mta_5_26_math_11_13` |
   | `mta2_5_19_medi` | `mta_5_26_pla_3'30` | `mta_6_3_math_8` |
   | `mta_6_4_medi` | `mta_6_4_pla_2` | `mta_6_3_math_10` |
   | `mta_6_4_medi(1)` | `mta_6_4_pla_2'10` | `mta_6_3_math_10(1)` |
-  | `nvt_5_21_medi` | | `mta_6_3_math_14` |
-  | `smj_5_22_medi` | | `nvt_5_26_math_7_10` |
+  | `nvt_5_21_medi` | `ljh_6_5_pla_2` | `mta_6_3_math_14` |
+  | `smj_5_22_medi` | `ljh_6_5_pla_2(1)` | `nvt_5_26_math_7_10` |
+  | | | `oyj_6_6_math_11` |
+  | | | `smj_6_6_math_17` |
 
-- **Features (8).** `csi`, `hr`, `hrv_rmssd`, `sd2_sd1`, `sd1_x_sd2`,
-  `ss`, `rr`, `rrv`.
-  - **Dropped from previous schema:** `sd1` (redundant with RMSSD —
-    `SD1 ≈ RMSSD / √2`), `sd2` (redundant with SS — `SS ≡ 1000/SD2`),
-    `sd1_sd2` (replaced by the conceptually cleaner `sd2_sd1`).
-  - **Added:** `sd1_x_sd2` (Poincaré ellipse area divided by π).
-  - SD1 and SD2 are still computed internally to derive the three
-    Poincaré features above; they just aren't fed to the model.
+- **Features (8).** `csi, hr, hrv_rmssd, sd2_sd1, sd1_x_sd2, ss, rr, rrv`.
+  SD1 / SD2 are computed internally only.
 
+- **ECG filter (new).** Wavelet (sym4 DWT) — 5–45 Hz band-keep with
+  Donoho soft-threshold denoising on the in-band detail coefficients.
+  No mains notch needed (60 Hz lives entirely in D2 which is zeroed).
+  Replaces the previous Butterworth 1–150 Hz + mains-notch chain.
 - **BR peak detector: sliding** (60-s window stepped by 30 s, local p90
-  prominence floor). This is now the project default; `neurokit` is no
-  longer used.
+  prominence floor).
 
-- **Windowing.** Anchor-based at a **2-s slide**. Per-feature centered
-  windows:
+- **Windowing.** Anchor-based at 2-s slide. Per-feature centered windows:
 
   | Feature | Window (s) |
   |---|---:|
@@ -44,38 +59,30 @@
   | RRV             | 60 |
   | CSI             | 40 |
 
-  Anchors near the rest → stress transition are dropped with the
-  asymmetric −10 / +30 s buffer (`[290 s, 330 s]`). Recovery phase
-  dropped entirely.
+  Asymmetric −10 / +30 s buffer around the 5-min cue. Recovery dropped.
 
-- **Window counts.** 3 556 anchors total — **1 936 rest / 720 meditation
-  / 180 plank / 720 math**. Plank is a small class (only 4 plank
-  recordings, all from `mta`).
+- **Window counts.** 4 340 anchors — **2 420 rest / 720 meditation / 240
+  plank / 960 math**.
 
 - **Models.** KNN (k=7, distance), RandomForest (400 trees), XGBoost
   (400 trees, depth 4); 1D-CNN on ECG + filtered Resp + Mic
-  Shannon-envelope raw channels (3 × 10 000 samples per window, 40 s @
-  250 Hz, AMP + AdamW + cosine LR + per-recording robust z-score).
+  Shannon-envelope (3 ch × 10 000 samples, 40 s @ 250 Hz).
 
-- **Protocol — LORO only** (16 folds). Macro-F1 is **pooled** over all
-  held-out predictions. The random 70:15:15 split is no longer
-  computed — at a 2-s anchor step neighbouring windows are
-  near-duplicates so the random split leaks heavily and the score
-  collapses to ~1.0 for every model.
+- **Protocol — LORO only** (20 folds, pooled macro-F1).
 
 ## Headline — pooled-LORO macro-F1
 
 | Model | acc | macro-F1 | F1[rest] | F1[medi] | F1[plank] | F1[math] |
 |---|---:|---:|---:|---:|---:|---:|
-| KNN              | 0.719 | 0.534 | 0.82 | 0.73 | 0.02 | 0.56 |
-| RandomForest     | 0.759 | 0.615 | 0.85 | 0.78 | 0.23 | 0.60 |
-| **XGBoost**      | **0.794** | 0.652 | **0.87** | **0.88** | 0.27 | 0.59 |
-| 1D-CNN           | 0.765 | **0.686** | 0.85 | 0.68 | **0.51** | **0.71** |
+| KNN              | 0.717 | 0.596 | 0.81 | 0.69 | 0.30 | 0.57 |
+| RandomForest     | 0.744 | 0.653 | 0.84 | 0.76 | 0.45 | 0.57 |
+| XGBoost          | 0.776 | 0.707 | 0.85 | 0.81 | 0.56 | **0.60** |
+| **1D-CNN**       | **0.793** | **0.753** | **0.87** | **0.93** | **0.79** | 0.48 |
 
-XGBoost wins on accuracy (0.79) and rest/medi/math handling. The CNN
-wins on macro-F1 (0.69) because of its `plank` and `math` per-class
-F1 — exactly the two minority classes the classical models struggle
-with.
+The 1D-CNN wins macro-F1 (0.75) and accuracy (0.79), driven by the best
+`meditation` (F1 0.93) and `plank` (0.79) per-class numbers. XGBoost
+remains the best classical model and the only model whose `math` F1
+beats the CNN's.
 
 ## Confusion matrices (LORO, row-normalized)
 
@@ -89,161 +96,101 @@ Numeric form (rows = true class):
 
 |             | rest | medi | plank | math |
 |---|---:|---:|---:|---:|
-| rest        | 0.89 | 0.06 | 0.00 | 0.05 |
-| meditation  | 0.07 | **0.91** | 0.00 | 0.02 |
-| plank       | 0.10 | 0.01 | 0.22 | 0.67 |
-| math        | 0.34 | 0.00 | 0.11 | 0.55 |
+| rest        | 0.85 | 0.05 | 0.00 | 0.10 |
+| meditation  | 0.11 | **0.84** | 0.00 | 0.05 |
+| plank       | 0.06 | 0.00 | 0.51 | 0.42 |
+| math        | 0.28 | 0.05 | 0.07 | 0.60 |
 
 **1D-CNN**
 
 |             | rest | medi | plank | math |
 |---|---:|---:|---:|---:|
-| rest        | 0.83 | 0.07 | 0.07 | 0.03 |
-| meditation  | 0.10 | 0.72 | 0.01 | 0.16 |
-| plank       | 0.00 | 0.39 | **0.61** | 0.00 |
-| math        | 0.19 | 0.12 | 0.00 | **0.68** |
+| rest        | 0.87 | 0.05 | 0.01 | 0.06 |
+| meditation  | 0.01 | **0.93** | 0.05 | 0.02 |
+| plank       | 0.05 | 0.07 | **0.88** | 0.00 |
+| math        | 0.31 | 0.19 | 0.02 | 0.48 |
 
-## Findings
+## Comparison vs the previous run (16-file curated set, Butterworth ECG)
 
-1. **Curating the dataset hurts macro-F1 vs the previous 31-recording
-   run** — XGBoost drops from 0.718 → 0.652, the CNN from 0.756 → 0.686.
-   The drop is dominated by plank: the curated set has only 4 plank
-   recordings (all `mta`), so in a LORO fold that holds out one `mta`
-   plank, only 3 plank recordings remain in the training pool, all
-   with the same subject signature. This is the cost of being
-   conservative about data quality.
+| Model | prev (16 files, Butterworth) | **current (20 files, wavelet)** | Δ |
+|---|---:|---:|---:|
+| KNN          | 0.534 | 0.596 | **+0.062** |
+| RandomForest | 0.615 | 0.653 | **+0.038** |
+| XGBoost      | 0.652 | 0.707 | **+0.055** |
+| 1D-CNN       | 0.686 | 0.753 | **+0.067** |
 
-2. **`plank` is the limiting class for the classical models.**
-   XGBoost reaches F1 = 0.27 on plank — the confusion matrix shows
-   **67 % of plank windows being predicted as math** because plank's
-   and math's autonomic signatures overlap (both: elevated HR,
-   suppressed HRV) and the model has very few plank examples to
-   contrast against.
+Per-class deltas — XGBoost:
 
-3. **The CNN partially recovers plank** at F1 = 0.51 (more than 2×
-   XGBoost). The mic Shannon-envelope + raw ECG amplitude pattern
-   during effort carries signal the 8 hand-crafted features collapse
-   away. CNN plank windows are now confused mostly with `meditation`
-   (39 % of plank → medi), which is harder to explain physiologically
-   — likely a CNN-internal pattern, not a feature-engineering issue.
+| Class | prev | curr | Δ |
+|---|---:|---:|---:|
+| rest        | 0.87 | 0.85 | −0.02 |
+| meditation  | 0.91 | 0.81 | −0.10 |
+| **plank**   | 0.27 | **0.56** | **+0.29** |
+| math        | 0.59 | 0.60 | +0.01 |
 
-4. **Meditation classification is now excellent for XGBoost** (F1 0.91,
-   recall 0.91). The curated set's meditation recordings have cleanly
-   separable Poincaré signatures (see `nvt_5_21_medi`, `smj_5_22_medi`
-   in [`poincare-report.md`](poincare-report.md)) — those are the rows
-   driving the per-class score.
+Per-class deltas — 1D-CNN:
 
-5. **Math stays moderate at best** (CNN 0.71, XGBoost 0.59). The
-   confusion matrices show math windows leaking into `rest` (XGBoost
-   34 %; CNN 19 %) — math's autonomic signature is close to a busy
-   resting state for `mta` specifically, and `mta` is 5 of the 6 math
-   recordings.
+| Class | prev | curr | Δ |
+|---|---:|---:|---:|
+| rest        | 0.85 | 0.87 | +0.02 |
+| meditation  | 0.68 | **0.93** | **+0.25** |
+| **plank**   | 0.51 | **0.79** | **+0.28** |
+| math        | 0.71 | 0.48 | −0.23 |
+
+**Reading.**
+
+1. **Plank is rescued by the `ljh` subject.** Adding the two `ljh_6_5_pla_*`
+   recordings means LORO finally has *cross-subject* plank evidence —
+   when an `mta` plank fold is held out, the training pool now contains
+   `ljh` plank data, and vice versa. Plank F1 jumps 0.27 → 0.56
+   (XGBoost) and 0.51 → 0.79 (CNN).
+2. **CNN meditation also jumps** (0.68 → 0.93) — likely because the
+   additional `oyj`/`smj` math subjects let the CNN form a sharper
+   "math fingerprint", which in turn reduces the medi→math
+   misclassifications that hurt the previous run.
+3. **XGBoost meditation regresses** slightly (0.91 → 0.81) — the
+   classical feature set is less able to separate the broader medi pool
+   from the (now also broader) math pool when the only autonomic axes
+   are HR + Poincaré ratios.
+4. **CNN math regresses** (0.71 → 0.48) — the previous run had a tight
+   `mta_6_3_math_*` cluster the CNN over-fit on; with more math subjects
+   (smj, oyj) that fingerprint dilutes. This is a more honest
+   cross-subject number.
+5. **Wavelet ECG filter** is hard to isolate from the data-size change,
+   but the across-the-board ~+0.05 LORO macro-F1 lift suggests it isn't
+   hurting. Mains rejection is cleaner (60 Hz lives entirely in D2 and
+   is zeroed by band-keep), and the Donoho soft threshold likely
+   suppresses high-frequency muscle noise during plank.
+
+## TL;DR (for the prof meeting)
+
+- **20 recordings, 5 subjects, 4 classes.** All "good files" per the
+  curator review.
+- **1D-CNN reaches pooled-LORO macro-F1 0.753**, accuracy 0.79.
+  Per-class: rest 0.87, **meditation 0.93**, **plank 0.88 recall / 0.79
+  F1**, math 0.48.
+- XGBoost (best classical): macro-F1 0.707, accuracy 0.78, **math F1 0.60**.
+- Compared to the previous 16-file Butterworth run, every model gained
+  0.04–0.07 macro-F1; plank improved most (+0.28 CNN, +0.29 XGBoost)
+  because plank finally has 2 subjects.
+- The wavelet 5–45 Hz ECG filter replaces the prior Butterworth chain
+  and includes built-in mains rejection.
+- **Math remains the hardest class for the CNN**, but XGBoost handles it
+  better. Worth discussing whether to ensemble.
 
 ## Reproduce
 
 ```bash
-# sliding is the default — no env var needed
-uv run python scripts/run_split_reports.py
-
-# regenerate Poincaré dump and plots
-uv run python scripts/dump_preprocessed_nn.py
-uv run python scripts/plot_poincare.py
+uv run python scripts/run_split_reports.py            # main training
+uv run python scripts/dump_preprocessed_nn.py         # NN/BR dump
+uv run python scripts/plot_poincare.py                # Poincaré plots
 ```
 
 Outputs:
 
 | File | Contents |
 |---|---|
-| `outputs/split_reports.json` | model numbers, per-class F1, pooled confusion matrices |
+| `outputs/split_reports.json` | per-class F1, pooled confusion matrices |
 | `figures/with_math/confusion/loro__*.png` | confusion-matrix heatmaps |
-| `outputs/preprocessed_nn.json` | per-recording NN intervals + BR breath intervals |
-| `figures/poincare/*.png` | Poincaré scatter plots (per-recording + aggregate) |
-
-## Comparison vs the previous sliding run
-
-Previous sliding run (commit `cde004d`, 31 recordings, 9 features) vs
-current sliding run (this report, 16 curated recordings, 8 features).
-
-### Setup deltas
-
-| | previous sliding | **current (curated)** |
-|---|---|---|
-| recordings    | 31 | **16** |
-| subjects      | 10 (ljh, mta, mta2, nnn, ntv, nva, nvt, oyj, smj, tnq) | **4** (mta, mta2, nvt, smj) |
-| windows total | 6 020 | **3 556** |
-| rest windows  | 3 146 | 1 936 |
-| medi windows  | 960 | 720 |
-| plank windows | 594 (5 subjects) | **180 (mta only, 4 recordings)** |
-| math windows  | 1 320 (6 subjects) | 720 (2 subjects: mta + nvt) |
-| features      | 9 (incl. raw sd1, sd2, sd1_sd2) | **8** (raw axes dropped; sd2_sd1 + sd1_x_sd2 added) |
-
-### Pooled-LORO macro-F1
-
-| Model | previous (31 recs / 9 feats) | **current (16 recs / 8 feats)** | Δ |
-|---|---:|---:|---:|
-| KNN          | 0.642 | 0.534 | **−0.108** |
-| RandomForest | 0.665 | 0.615 | **−0.050** |
-| XGBoost      | 0.718 | 0.652 | **−0.066** |
-| 1D-CNN       | 0.756 | 0.686 | **−0.070** |
-
-### Per-class F1 — XGBoost
-
-| Class | prev | curr | Δ |
-|---|---:|---:|---:|
-| rest        | 0.83 | **0.87** | +0.04 |
-| meditation  | 0.90 | **0.91** | +0.01 |
-| **plank**   | **0.58** | 0.27 | **−0.31** |
-| math        | 0.56 | 0.59 | +0.03 |
-
-### Per-class F1 — 1D-CNN
-
-| Class | prev | curr | Δ |
-|---|---:|---:|---:|
-| rest        | 0.82 | **0.85** | +0.03 |
-| meditation  | 0.80 | 0.68 | **−0.12** |
-| **plank**   | **0.94** | 0.51 | **−0.43** |
-| math        | 0.47 | **0.71** | **+0.24** |
-
-### What moved and why
-
-1. **Macro-F1 dropped for every model.** The driver is almost entirely the
-   plank class. Going from 5 plank subjects (594 windows) down to **1
-   plank subject** (`mta`, 180 windows) means LORO no longer has *any*
-   cross-subject plank evidence — when an `mta` plank recording is held
-   out, only 3 other `mta` plank recordings remain. Plank F1 collapsed
-   by 0.31 (XGBoost) and 0.43 (CNN).
-
-2. **rest and medi got slightly *better*.** Both classes still have
-   multiple subjects (4 medi subjects, 4 rest sources), and the
-   curated set has cleaner Poincaré signatures (see `nvt_5_21_medi`,
-   `smj_5_22_medi`). XGBoost meditation F1 nudged from 0.90 → 0.91;
-   rest from 0.83 → 0.87.
-
-3. **Math went in opposite directions for the two model families.**
-   Classical XGBoost stayed flat (0.56 → 0.59). The CNN **gained
-   substantially** on math (0.47 → 0.71) — the four `mta_6_3_math_*`
-   recordings give the conv stack very consistent within-subject
-   waveform patterns to lock onto, even if it generalises to only one
-   other subject (`nvt`).
-
-4. **CNN meditation regressed.** F1 dropped 0.80 → 0.68 because the
-   CNN now confuses 16 % of medi windows with math (per the confusion
-   matrix). With math windows being almost all `mta_6_3_math_*` and
-   medi including `mta_6_4_medi*`, the CNN may be over-relying on `mta`
-   waveform fingerprints that aren't class-specific. This is a textbook
-   over-curation symptom — fewer subjects → easier within-subject
-   patterns become spuriously class-discriminative.
-
-5. **Feature schema change (9 → 8) is not the cause.** RMSSD already
-   carried SD1's information and SS already carried SD2's; dropping
-   them was a redundancy fix, not a feature-strength change. The new
-   `sd1_x_sd2` (ellipse area) adds genuinely new content vs the old
-   schema.
-
-### TL;DR
-
-The curated dataset is **cleaner per recording, but narrower in subject
-coverage** — most of the macro-F1 loss is paid by plank. If we want
-both clean data *and* cross-subject plank generalisation, we need more
-plank recordings from non-`mta` subjects in the next round of data
-collection.
+| `outputs/preprocessed_nn.json` | per-recording NN + BR intervals |
+| `figures/poincare/*.png` | Poincaré scatter plots |

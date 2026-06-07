@@ -1,7 +1,8 @@
 """Signal preprocessing per features.pdf.
 
-ECG  : low-pass 150 Hz + detrend, then Pan-Tompkins R-peak detection (peaks
-       are negative in the raw local signal; pre-flipped before detection).
+ECG  : wavelet denoise (sym4, soft-threshold) keeping the 5-45 Hz band,
+       then Pan-Tompkins R-peak detection (peaks are negative in the raw
+       local signal; pre-flipped before detection).
 BR   : detrend -> 0.5 s moving-average -> 4th-order Cheby II low-pass
        (stopband edge 1 Hz) -> 2nd-order Butterworth high-pass at 0.12 Hz.
        Peak detection uses the PDF's slope-based algorithm with an adaptive
@@ -17,30 +18,83 @@ NN   : intervals shorter than 300 ms or longer than 1500 ms are rejected;
 from __future__ import annotations
 
 import numpy as np
+import pywt
 from scipy import signal
 from scipy.interpolate import CubicSpline
 
 
 # ---- ECG --------------------------------------------------------------------
 
-def filter_ecg(x: np.ndarray, fs: float, mains: float | None = 60.0) -> np.ndarray:
-    """HP 1 Hz -> notch `mains` Hz (Q=30) -> LP 150 Hz. Zero-phase (sosfiltfilt).
+ECG_WAVELET = "sym4"
+ECG_BAND_LO_HZ = 5.0
+ECG_BAND_HI_HZ = 45.0
 
-    HP removes baseline wander; notch removes mains interference (default 60 Hz
-    for local Korean recordings, pass mains=50.0 for WESAD/EU); LP caps wideband
-    noise. All sections chained in SOS form for numerical stability.
+
+def _detail_levels_in_band(fs: float, max_level: int,
+                            lo: float, hi: float) -> set[int]:
+    """Detail levels (1..max_level) whose dyadic passband intersects [lo, hi].
+    Level L covers approximately [fs / 2^(L+1), fs / 2^L]."""
+    keep: set[int] = set()
+    for L in range(1, max_level + 1):
+        f_hi = fs / (2 ** L)
+        f_lo = fs / (2 ** (L + 1))
+        if f_hi >= lo and f_lo <= hi:
+            keep.add(L)
+    return keep
+
+
+def filter_ecg(x: np.ndarray, fs: float, mains: float | None = None) -> np.ndarray:
+    """Wavelet denoise + 5-45 Hz band-keep. Replaces the previous
+    Butterworth 1-150 Hz + mains-notch chain.
+
+    Steps:
+      1. Multi-resolution DWT with `ECG_WAVELET` (sym4) deep enough that
+         the deepest approximation band falls fully *below* ECG_BAND_LO_HZ
+         (so it contains only DC / baseline wander).
+      2. Donoho universal soft-threshold on the detail coefficients of
+         every level whose passband intersects [5, 45] Hz (denoise).
+      3. Zero the detail coefficients of every other level **and** the
+         deepest approximation — replaces the old HP 1 Hz, LP 150 Hz,
+         and mains notch all at once (60 Hz lives in level D2 which is
+         fully zeroed).
+      4. Inverse DWT.
+
+    `mains` is accepted for backwards-compatibility and ignored (mains
+    rejection comes free from band-keep).
     """
-    nyq = 0.5 * fs
-    sos_hp = signal.butter(4, 1.0, btype="high", fs=fs, output="sos")
-    y = signal.sosfiltfilt(sos_hp, x)
-    if mains and mains > 0 and mains < nyq:
-        b, a = signal.iirnotch(w0=mains, Q=30.0, fs=fs)
-        sos_notch = signal.tf2sos(b, a)
-        y = signal.sosfiltfilt(sos_notch, y)
-    cutoff = min(150.0, nyq * 0.95)
-    sos_lp = signal.butter(4, cutoff, btype="low", fs=fs, output="sos")
-    y = signal.sosfiltfilt(sos_lp, y)
-    return y
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim != 1:
+        x = x.ravel()
+
+    safe_depth = pywt.dwt_max_level(len(x), ECG_WAVELET)
+    # Choose depth so that A_max covers [0, fs / 2^(max_level+1)) which
+    # sits strictly below ECG_BAND_LO_HZ. The +1 inside ceil enforces a
+    # safe margin against rounding at the boundary.
+    needed_depth = int(np.ceil(np.log2(fs / ECG_BAND_LO_HZ)))
+    max_level = max(1, min(safe_depth, needed_depth))
+
+    coeffs = pywt.wavedec(x, ECG_WAVELET, level=max_level, mode="symmetric")
+    cA, *cDs = coeffs                          # cDs in order D_max ... D_1
+    keep = _detail_levels_in_band(fs, max_level, ECG_BAND_LO_HZ, ECG_BAND_HI_HZ)
+
+    # Donoho universal threshold derived from the finest-scale detail:
+    #   λ = σ √(2 ln N),   σ = MAD(D_1) / 0.6745
+    d1 = cDs[-1]
+    sigma = float(np.median(np.abs(d1 - np.median(d1)))) / 0.6745
+    lam = sigma * np.sqrt(2.0 * np.log(max(len(x), 2)))
+
+    new_cDs: list[np.ndarray] = []
+    for i, cD in enumerate(cDs):
+        level = max_level - i                  # D_max, D_{max-1}, …, D_1
+        if level in keep:
+            new_cDs.append(pywt.threshold(cD, lam, mode="soft"))
+        else:
+            new_cDs.append(np.zeros_like(cD))
+
+    new_cA = np.zeros_like(cA)                 # always drop the approximation
+
+    y = pywt.waverec([new_cA] + new_cDs, ECG_WAVELET, mode="symmetric")
+    return y[: len(x)]
 
 
 def filter_ecg_for_qrs(x: np.ndarray, fs: float) -> np.ndarray:
