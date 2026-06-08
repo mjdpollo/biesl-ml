@@ -119,7 +119,10 @@ def normalize_global(images: np.ndarray, denom: float | None = None) -> tuple[np
     return (images / denom).astype(np.float32), denom
 
 
-def windows_from_recording(rec: Recording, *, norm: str = "per_image") -> list[PoincareWindow]:
+def windows_from_recording(
+    rec: Recording, *, norm: str = "per_image",
+    window_s: float = WINDOW_S, stride_s: float = STRIDE_S,
+) -> list[PoincareWindow]:
     if rec.name in EXCLUDE_RECORDINGS:
         return []
 
@@ -137,8 +140,8 @@ def windows_from_recording(rec: Recording, *, norm: str = "per_image") -> list[P
             continue
 
         start = p_start
-        while start + WINDOW_S <= p_end + 1e-9:
-            w_lo, w_hi = start, start + WINDOW_S
+        while start + window_s <= p_end + 1e-9:
+            w_lo, w_hi = start, start + window_s
             if not _overlaps_boundary(w_lo, w_hi):
                 rp = _slice_peaks_by_time(pp.rpeaks, pp.fs_ecg, pp.ecg_t0, w_lo, w_hi)
                 nn = clean_nn_intervals(rp, pp.fs_ecg)
@@ -152,16 +155,19 @@ def windows_from_recording(rec: Recording, *, norm: str = "per_image") -> list[P
                         t_start=float(start),
                         n_nn=int(len(nn)),
                     ))
-            start += STRIDE_S
+            start += stride_s
 
     return out
 
 
-def build_dataset(data_dir: str = "data", *, norm: str = "per_image") -> list[PoincareWindow]:
+def build_dataset(
+    data_dir: str = "data", *, norm: str = "per_image",
+    window_s: float = WINDOW_S, stride_s: float = STRIDE_S,
+) -> list[PoincareWindow]:
     out: list[PoincareWindow] = []
     for path in list_recordings(data_dir):
         rec = load_recording(path)
-        ws = windows_from_recording(rec, norm=norm)
+        ws = windows_from_recording(rec, norm=norm, window_s=window_s, stride_s=stride_s)
         from collections import Counter
         acts = dict(Counter(w.activity for w in ws))
         print(f"  {os.path.basename(path):30s}  {len(ws):3d} windows  {acts}")
@@ -186,10 +192,12 @@ def build_and_cache(
     cache_path: str = "outputs/poincare_dataset.npz",
     *,
     norm: str = "per_image",
+    window_s: float = WINDOW_S,
+    stride_s: float = STRIDE_S,
 ) -> dict:
-    print(f"building Poincare images (window={WINDOW_S:.0f}s stride={STRIDE_S:.0f}s "
+    print(f"building Poincare images (window={window_s:.0f}s stride={stride_s:.0f}s "
           f"bins={BINS} range={RANGE_MS} norm={norm}) ...")
-    ws = build_dataset(data_dir, norm=norm)
+    ws = build_dataset(data_dir, norm=norm, window_s=window_s, stride_s=stride_s)
     data = stack(ws)
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     np.savez_compressed(cache_path, **data)

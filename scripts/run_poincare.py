@@ -1,15 +1,19 @@
 #!/usr/bin/env python
 """End-to-end Poincare-image 2D-CNN experiment.
 
-  1. build 64x64 log-count Poincare images (60-s window, 20-s stride)
+  1. build 64x64 log-count Poincare images (window/stride configurable)
   2. save a sample montage per class to figures/poincare_images/
   3. LORO 2D-CNN training on CUDA
-  4. write report/poincare-cnn-report.md
+  4. write report/poincare-cnn-report{tag}.md + confusion heatmap
 
-Run:  uv run python scripts/run_poincare.py
+Run:
+    uv run python scripts/run_poincare.py                       # 60-s window
+    uv run python scripts/run_poincare.py --window 120 --tag _2min
 """
 from __future__ import annotations
 
+import argparse
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -24,15 +28,17 @@ sys.path.insert(0, str(ROOT))
 
 from src.pipeline import PHASE_CLASSES                                  # noqa: E402
 from src.poincare_images import (                                      # noqa: E402
-    BINS, RANGE_MS, STRIDE_S, WINDOW_S, LABEL_NAMES, build_and_cache,
+    BINS, RANGE_MS, LABEL_NAMES, build_and_cache,
 )
-from src.poincare_train import CACHE, main as train_main               # noqa: E402
+from src.poincare_train import (                                       # noqa: E402
+    EPOCHS, _json_default, run_loro,
+)
 
 FIG_DIR = ROOT / "figures" / "poincare_images"
-REPORT = ROOT / "report" / "poincare-cnn-report.md"
 
 
-def plot_samples(data: dict, n_per_class: int = 6) -> None:
+def plot_samples(data: dict, *, window_s: float, stride_s: float,
+                 out_path: Path, n_per_class: int = 6) -> None:
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     X, y = data["X"], data["y"]
     fig, axes = plt.subplots(len(PHASE_CLASSES), n_per_class,
@@ -52,12 +58,12 @@ def plot_samples(data: dict, n_per_class: int = 6) -> None:
             if c == 0:
                 ax.set_ylabel(cls, fontsize=11)
     fig.suptitle(f"Poincare images  ({BINS}x{BINS}, {RANGE_MS[0]:.0f}-{RANGE_MS[1]:.0f} ms, "
-                 f"log(1+count), per-image max)", fontsize=12)
+                 f"log(1+count), per-image max)  —  window={window_s:.0f}s stride={stride_s:.0f}s",
+                 fontsize=12)
     fig.tight_layout()
-    out = FIG_DIR / "samples_by_class.png"
-    fig.savefig(out, dpi=110, bbox_inches="tight")
+    fig.savefig(out_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
-    print(f"  -> wrote {out}")
+    print(f"  -> wrote {out_path}")
 
 
 def _row_normalize(cm: np.ndarray) -> np.ndarray:
@@ -67,8 +73,7 @@ def _row_normalize(cm: np.ndarray) -> np.ndarray:
     return cm / safe * 100.0
 
 
-def save_confusion_png(cm: np.ndarray, slug: str = "confusion_loro",
-                       title: str = "Poincare 2D-CNN  LORO") -> Path:
+def save_confusion_png(cm: np.ndarray, out_path: Path, title: str) -> None:
     """Row-normalized confusion heatmap, matching scripts/show_confusion_matrices.py."""
     cm_pct = _row_normalize(cm)
     supports = cm.sum(axis=1).astype(int)
@@ -90,72 +95,53 @@ def save_confusion_png(cm: np.ndarray, slug: str = "confusion_loro",
     cbar.set_label("% of true class")
     plt.tight_layout()
     FIG_DIR.mkdir(parents=True, exist_ok=True)
-    path = FIG_DIR / f"{slug}.png"
-    plt.savefig(path, dpi=140)
+    plt.savefig(out_path, dpi=140)
     plt.close(fig)
-    print(f"  -> wrote {path}")
-    return path
+    print(f"  -> wrote {out_path}")
 
 
-def _per_class_pr(report: dict, c: str) -> tuple[float, float]:
-    blk = report.get(c, {})
-    return float(blk.get("precision", 0.0)), float(blk.get("recall", 0.0))
-
-
-def write_report(result: dict, data: dict) -> None:
+def write_report(result: dict, data: dict, *, window_s: float, stride_s: float,
+                 report_path: Path, samples_png: str, confusion_png: str) -> None:
     s = result["summary"]
     y = data["y"]
     rec_names = data["rec_names"]
     counts = {LABEL_NAMES[k]: int(v) for k, v in sorted(Counter(y.tolist()).items())}
     n_rec = len(set(rec_names.tolist()))
-    n_subj = len(set(s.split("_")[0] for s in rec_names.tolist()))
+    n_subj = len(set(r.split("_")[0] for r in rec_names.tolist()))
     cm = np.asarray(s["confusion_total"], dtype=int)
     cm_pct = _row_normalize(cm)
 
     L: list[str] = []
-    L.append("# Poincaré-image 2D-CNN — stress/activity classification\n")
+    L.append(f"# Poincaré-image 2D-CNN — {window_s:.0f}s window\n")
     L.append("> 4 classes: **rest / meditation / plank / math**. ECG RR (NN) "
              "Poincaré plots rendered as 64×64 log-count **images** and classified "
              "with a small 2D-CNN.")
-    L.append("> Companion to the feature-based [`ml-report.md`](ml-report.md) and the "
-             "Poincaré diagnostics in [`poincare-report.md`](poincare-report.md).\n")
-
-    L.append("## What this run is\n")
-    L.append("Instead of feeding scalar Poincaré descriptors (SD1, SD2, …) to a "
-             "classifier, each window's RR series is turned into a **2-D Poincaré "
-             "image** and a convolutional net learns directly from the scatter "
-             "shape. One image per window, one window every 20 s.\n")
+    L.append("> Companion to the feature-based [`ml-report.md`](ml-report.md), the "
+             "60s-vs-2min comparison in "
+             "[`poincare-cnn-window-comparison.md`](poincare-cnn-window-comparison.md), "
+             "and the Poincaré diagnostics in [`poincare-report.md`](poincare-report.md).\n")
 
     L.append("## Setup\n")
     L.append(f"- **Image.** x = RRₙ, y = RRₙ₊₁; range {RANGE_MS[0]:.0f}–{RANGE_MS[1]:.0f} ms; "
              f"**{BINS}×{BINS}** bins; value = **log(1+count)**; **per-image max** "
              "normalization. Single channel (64×64×1).")
-    L.append(f"- **Windowing.** {WINDOW_S:.0f}-s window, **{STRIDE_S:.0f}-s stride**, each "
+    L.append(f"- **Windowing.** **{window_s:.0f}-s window, {stride_s:.0f}-s stride**, each "
              "window fully inside one phase (no cross-phase mixing).")
     L.append("- **Boundary exclusion.** Windows overlapping the 5-min cue "
              "**[290, 310] s** or the 10-min mark **[590, 610] s** are dropped. "
-             "Recovery phase dropped (matches the rest of the project).")
+             "Recovery phase dropped.")
     L.append("- **Partial exclusions (curator review).** `smj_6_6_math_17` removed "
              "entirely; `oyj_6_6_math_11` rest phase removed (math kept).")
-    L.append("- **RR source.** Same pipeline as the classical features — wavelet "
-             "5–45 Hz ECG filter → neurokit R-peaks → NN cleaning "
-             "(300–1500 ms reject + 20 % median-deviation reject + cubic-spline "
-             "interpolation).")
-    L.append("- **Model.**")
-    L.append("")
-    L.append("  ```")
-    L.append("  Input 64×64×1")
-    L.append("  Conv2D(16,3×3,same) → BN → ReLU → MaxPool2×2     # 64→32")
-    L.append("  Conv2D(32,3×3,same) → BN → ReLU → MaxPool2×2     # 32→16")
-    L.append("  Conv2D(64,3×3,same) → BN → ReLU → GlobalAvgPool  # → 64")
-    L.append("  Dense(64) → ReLU → Dropout(0.3) → Output(4)")
-    L.append("  ```")
-    L.append("")
-    L.append("  ~28 k parameters. Class-weighted cross-entropy, AdamW "
-             "(lr 1e-3, wd 1e-4), cosine schedule, mild additive-noise augment, "
-             "AMP on **CUDA (RTX 5090)**, early stopping on inner-val macro-F1.")
-    L.append("- **Protocol — LORO** (leave-one-recording-out); one further recording "
-             "held out per fold as the inner validation set.\n")
+    L.append("- **RR source.** Wavelet 5–45 Hz ECG filter → neurokit R-peaks → NN "
+             "cleaning (300–1500 ms reject + 20 % median-deviation reject + "
+             "cubic-spline interpolation).")
+    L.append("- **Model.** Conv2D(16,3×3,same)→BN→ReLU→MaxPool · "
+             "Conv2D(32,…)→BN→ReLU→MaxPool · Conv2D(64,…)→BN→ReLU→GAP · "
+             "Dense(64)→ReLU→Dropout(0.3)→Output(4). ~28 k params.")
+    L.append("- **Training.** Class-weighted CE, AdamW (lr 1e-3, wd 1e-4), cosine "
+             "schedule, AMP on **CUDA (RTX 5090)**, early stopping on inner-val "
+             "macro-F1.")
+    L.append("- **Protocol — LORO** (leave-one-recording-out).\n")
 
     L.append("## Dataset\n")
     L.append(f"- **{len(y)} windows**, **{n_rec} recordings**, {n_subj} subjects "
@@ -164,18 +150,13 @@ def write_report(result: dict, data: dict) -> None:
     L.append("  | rest | meditation | plank | math | total |")
     L.append("  |---:|---:|---:|---:|---:|")
     L.append(f"  | {counts.get('rest',0)} | {counts.get('meditation',0)} | "
-             f"{counts.get('plank',0)} | {counts.get('math',0)} | {len(y)} |")
-    L.append("")
-    L.append("  > The class set is heavily imbalanced (rest ≫ plank). The 60-s "
-             "window (vs the originally-requested 2 min) is what keeps plank "
-             "trainable at all — at 2 min the plank phases (120–210 s) yield "
-             "~6 windows total.\n")
+             f"{counts.get('plank',0)} | {counts.get('math',0)} | {len(y)} |\n")
 
     L.append("## Headline — pooled-LORO\n")
     L.append("| Model | acc | macro-F1 | F1[rest] | F1[medi] | F1[plank] | F1[math] |")
     L.append("|---|---:|---:|---:|---:|---:|---:|")
     pc = s["per_class_f1_mean"]
-    L.append(f"| **Poincaré 2D-CNN** | {s['mean_accuracy']:.3f} | "
+    L.append(f"| **Poincaré 2D-CNN ({window_s:.0f}s)** | {s['mean_accuracy']:.3f} | "
              f"{s['mean_macro_f1']:.3f} | {pc['rest']:.3f} | {pc['meditation']:.3f} | "
              f"{pc['plank']:.3f} | {pc['math']:.3f} |")
     L.append("")
@@ -184,7 +165,7 @@ def write_report(result: dict, data: dict) -> None:
              "(mean ± std across folds).\n")
 
     L.append("## Confusion matrix (LORO, summed across folds)\n")
-    L.append("![confusion](../figures/poincare_images/confusion_loro.png)\n")
+    L.append(f"![confusion](../figures/poincare_images/{confusion_png})\n")
     L.append("Row-normalized (rows = true class, % of that class):\n")
     L.append("| true \\ pred | " + " | ".join(PHASE_CLASSES) + " | support |")
     L.append("|---|" + "|".join("---:" for _ in PHASE_CLASSES) + "|---:|")
@@ -207,49 +188,55 @@ def write_report(result: dict, data: dict) -> None:
                  f"{f['macro_f1']:.3f} | {f['accuracy']:.3f} |")
     L.append("")
 
-    L.append("## Reading the result\n")
-    L.append("1. **rest and math carry the score**; **meditation and plank are "
-             "essentially not learned** cross-recording (medi F1 "
-             f"{pc['meditation']:.2f}, plank F1 {pc['plank']:.2f}).")
-    L.append("2. The confusion matrix shows the failure mode: **meditation is "
-             "absorbed into rest/math** and **plank is absorbed into math** — "
-             "from RR shape alone the net cannot separate the minority stress "
-             "classes from the majority ones across unseen subjects.")
-    L.append("3. Causes: (a) strong **class imbalance** (rest 216 vs plank 23); "
-             "(b) **LORO is hard** — Poincaré shape has large per-subject baseline "
-             "spread, so some folds collapse (e.g. `nvt_5_21_medi` F1 0.0); "
-             "(c) **single modality** — only RR, vs the 8-feature / multi-channel "
-             "pipelines in `ml-report.md`.")
-    L.append("4. For reference, the feature-based 1D-CNN in `ml-report.md` reaches "
-             "macro-F1 0.75 on the same recordings using ECG+Resp+Mic — the "
-             "Poincaré-image-only model is well below that and should be read as a "
-             "**single-modality baseline**, not a replacement.\n")
+    L.append("## Samples\n")
+    L.append(f"![samples](../figures/poincare_images/{samples_png})\n")
 
     L.append("## Reproduce\n")
     L.append("```bash")
-    L.append("uv run python scripts/run_poincare.py")
+    if abs(window_s - 60.0) < 1e-6:
+        L.append("uv run python scripts/run_poincare.py")
+    else:
+        L.append(f"uv run python scripts/run_poincare.py --window {window_s:.0f} "
+                 f"--stride {stride_s:.0f} --tag _{window_s/60:.0f}min")
     L.append("```")
     L.append("")
-    L.append("Outputs:\n")
-    L.append("| File | Contents |")
-    L.append("|---|---|")
-    L.append("| `outputs/poincare_dataset.npz` | stacked 64×64 images + labels/meta |")
-    L.append("| `outputs/poincare_loro.json` | per-fold + summary, confusion matrix |")
-    L.append("| `figures/poincare_images/samples_by_class.png` | sample images per class |")
-    L.append("| `figures/poincare_images/confusion_loro.png` | LORO confusion heatmap |")
-    L.append("")
 
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text("\n".join(L))
-    print(f"  -> wrote {REPORT}")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("\n".join(L))
+    print(f"  -> wrote {report_path}")
 
 
 def main() -> None:
-    data = build_and_cache(cache_path=CACHE, norm="per_image")
-    plot_samples(data)
-    result = train_main(rebuild=False)        # reuse the cache just built
-    save_confusion_png(np.asarray(result["summary"]["confusion_total"], dtype=int))
-    write_report(result, data)
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--window", type=float, default=60.0, help="window length (s)")
+    ap.add_argument("--stride", type=float, default=20.0, help="stride (s)")
+    ap.add_argument("--tag", default="", help="suffix for output files (e.g. _2min)")
+    ap.add_argument("--epochs", type=int, default=EPOCHS)
+    args = ap.parse_args()
+
+    tag = args.tag
+    cache = ROOT / "outputs" / f"poincare_dataset{tag}.npz"
+    json_path = ROOT / "outputs" / f"poincare_loro{tag}.json"
+    report_path = ROOT / "report" / f"poincare-cnn-report{tag}.md"
+    samples_png = f"samples_by_class{tag}.png"
+    confusion_png = f"confusion_loro{tag}.png"
+
+    data = build_and_cache(cache_path=str(cache), norm="per_image",
+                           window_s=args.window, stride_s=args.stride)
+    plot_samples(data, window_s=args.window, stride_s=args.stride,
+                 out_path=FIG_DIR / samples_png)
+
+    result = run_loro(data, epochs=args.epochs)
+    with open(json_path, "w") as fh:
+        json.dump(result, fh, indent=2, default=_json_default)
+    print(f"  -> wrote {json_path}")
+
+    save_confusion_png(np.asarray(result["summary"]["confusion_total"], dtype=int),
+                       FIG_DIR / confusion_png,
+                       title=f"Poincare 2D-CNN  LORO  ({args.window:.0f}s)")
+    write_report(result, data, window_s=args.window, stride_s=args.stride,
+                 report_path=report_path, samples_png=samples_png,
+                 confusion_png=confusion_png)
 
 
 if __name__ == "__main__":

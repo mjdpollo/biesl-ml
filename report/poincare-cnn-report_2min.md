@@ -1,4 +1,4 @@
-# Poincaré-image 2D-CNN — 60s window
+# Poincaré-image 2D-CNN — 120s window
 
 > 4 classes: **rest / meditation / plank / math**. ECG RR (NN) Poincaré plots rendered as 64×64 log-count **images** and classified with a small 2D-CNN.
 > Companion to the feature-based [`ml-report.md`](ml-report.md), the 60s-vs-2min comparison in [`poincare-cnn-window-comparison.md`](poincare-cnn-window-comparison.md), and the Poincaré diagnostics in [`poincare-report.md`](poincare-report.md).
@@ -6,7 +6,7 @@
 ## Setup
 
 - **Image.** x = RRₙ, y = RRₙ₊₁; range 300–1400 ms; **64×64** bins; value = **log(1+count)**; **per-image max** normalization. Single channel (64×64×1).
-- **Windowing.** **60-s window, 20-s stride**, each window fully inside one phase (no cross-phase mixing).
+- **Windowing.** **120-s window, 20-s stride**, each window fully inside one phase (no cross-phase mixing).
 - **Boundary exclusion.** Windows overlapping the 5-min cue **[290, 310] s** or the 10-min mark **[590, 610] s** are dropped. Recovery phase dropped.
 - **Partial exclusions (curator review).** `smj_6_6_math_17` removed entirely; `oyj_6_6_math_11` rest phase removed (math kept).
 - **RR source.** Wavelet 5–45 Hz ECG filter → neurokit R-peaks → NN cleaning (300–1500 ms reject + 20 % median-deviation reject + cubic-spline interpolation).
@@ -16,73 +16,73 @@
 
 ## Dataset
 
-- **382 windows**, **19 recordings**, 6 subjects (LORO = 19 folds).
+- **271 windows**, **19 recordings**, 6 subjects (LORO = 19 folds).
 - Class counts:
 
   | rest | meditation | plank | math | total |
   |---:|---:|---:|---:|---:|
-  | 216 | 66 | 23 | 77 | 382 |
+  | 162 | 48 | 5 | 56 | 271 |
 
 ## Headline — pooled-LORO
 
 | Model | acc | macro-F1 | F1[rest] | F1[medi] | F1[plank] | F1[math] |
 |---|---:|---:|---:|---:|---:|---:|
-| **Poincaré 2D-CNN (60s)** | 0.562 | 0.249 | 0.611 | 0.036 | 0.090 | 0.259 |
+| **Poincaré 2D-CNN (120s)** | 0.571 | 0.199 | 0.524 | 0.049 | 0.000 | 0.222 |
 
-Accuracy **0.562 ± 0.247**, macro-F1 **0.249 ± 0.125** (mean ± std across folds).
+Accuracy **0.571 ± 0.316**, macro-F1 **0.199 ± 0.123** (mean ± std across folds).
 
 ## Confusion matrix (LORO, summed across folds)
 
-![confusion](../figures/poincare_images/confusion_loro.png)
+![confusion](../figures/poincare_images/confusion_loro_2min.png)
 
 Row-normalized (rows = true class, % of that class):
 
 | true \ pred | rest | meditation | plank | math | support |
 |---|---:|---:|---:|---:|---:|
-| **rest** | 62.5% | 1.4% | 0.0% | 36.1% | 216 |
-| **meditation** | 75.8% | 7.6% | 0.0% | 16.7% | 66 |
-| **plank** | 0.0% | 0.0% | 21.7% | 78.3% | 23 |
-| **math** | 0.0% | 0.0% | 15.6% | 84.4% | 77 |
+| **rest** | 63.6% | 1.2% | 0.0% | 35.2% | 162 |
+| **meditation** | 77.1% | 14.6% | 0.0% | 8.3% | 48 |
+| **plank** | 0.0% | 0.0% | 0.0% | 100.0% | 5 |
+| **math** | 30.4% | 0.0% | 0.0% | 69.6% | 56 |
 
 Raw counts:
 
 | true \ pred | rest | meditation | plank | math |
 |---|---:|---:|---:|---:|
-| **rest** | 135 | 3 | 0 | 78 |
-| **meditation** | 50 | 5 | 0 | 11 |
-| **plank** | 0 | 0 | 5 | 18 |
-| **math** | 0 | 0 | 12 | 65 |
+| **rest** | 103 | 2 | 0 | 57 |
+| **meditation** | 37 | 7 | 0 | 4 |
+| **plank** | 0 | 0 | 0 | 5 |
+| **math** | 17 | 0 | 0 | 39 |
 
 ## Per-fold results
 
 | recording | test_n | macro-F1 | acc |
 |---|---:|---:|---:|
-| `ljh_6_5_pla_2` | 15 | 0.250 | 0.800 |
-| `ljh_6_5_pla_2(1)` | 15 | 0.239 | 0.733 |
-| `mta2_5_19_medi` | 23 | 0.191 | 0.435 |
-| `mta_5_19_medi` | 23 | 0.100 | 0.217 |
-| `mta_5_19_pla_2'20(1)` | 16 | 0.417 | 0.875 |
-| `mta_5_26_math_11_13` | 23 | 0.363 | 0.739 |
-| `mta_5_26_pla_3'30` | 19 | 0.290 | 0.579 |
-| `mta_6_3_math_10` | 23 | 0.456 | 0.913 |
-| `mta_6_3_math_10(1)` | 23 | 0.267 | 0.565 |
-| `mta_6_3_math_14` | 23 | 0.381 | 0.696 |
-| `mta_6_3_math_8` | 23 | 0.162 | 0.478 |
-| `mta_6_4_medi` | 23 | 0.065 | 0.130 |
-| `mta_6_4_medi(1)` | 23 | 0.182 | 0.522 |
-| `mta_6_4_pla_2` | 15 | 0.439 | 0.867 |
-| `mta_6_4_pla_2'10` | 15 | 0.184 | 0.467 |
-| `nvt_5_21_medi` | 23 | 0.000 | 0.000 |
-| `nvt_5_26_math_7_10` | 23 | 0.277 | 0.609 |
-| `oyj_6_6_math_11` | 11 | 0.133 | 0.364 |
-| `smj_5_22_medi` | 23 | 0.333 | 0.696 |
+| `ljh_6_5_pla_2` | 9 | 0.250 | 1.000 |
+| `ljh_6_5_pla_2(1)` | 9 | 0.219 | 0.778 |
+| `mta2_5_19_medi` | 17 | 0.173 | 0.529 |
+| `mta_5_19_medi` | 17 | 0.028 | 0.059 |
+| `mta_5_19_pla_2'20(1)` | 10 | 0.200 | 0.600 |
+| `mta_5_26_math_11_13` | 17 | 0.160 | 0.471 |
+| `mta_5_26_pla_3'30` | 13 | 0.000 | 0.000 |
+| `mta_6_3_math_10` | 17 | 0.500 | 1.000 |
+| `mta_6_3_math_10(1)` | 17 | 0.470 | 0.941 |
+| `mta_6_3_math_14` | 17 | 0.173 | 0.529 |
+| `mta_6_3_math_8` | 17 | 0.160 | 0.471 |
+| `mta_6_4_medi` | 17 | 0.160 | 0.471 |
+| `mta_6_4_medi(1)` | 17 | 0.205 | 0.529 |
+| `mta_6_4_pla_2` | 9 | 0.250 | 1.000 |
+| `mta_6_4_pla_2'10` | 9 | 0.000 | 0.000 |
+| `nvt_5_21_medi` | 17 | 0.233 | 0.412 |
+| `nvt_5_26_math_7_10` | 17 | 0.173 | 0.529 |
+| `oyj_6_6_math_11` | 8 | 0.250 | 1.000 |
+| `smj_5_22_medi` | 17 | 0.173 | 0.529 |
 
 ## Samples
 
-![samples](../figures/poincare_images/samples_by_class.png)
+![samples](../figures/poincare_images/samples_by_class_2min.png)
 
 ## Reproduce
 
 ```bash
-uv run python scripts/run_poincare.py
+uv run python scripts/run_poincare.py --window 120 --stride 20 --tag _2min
 ```
