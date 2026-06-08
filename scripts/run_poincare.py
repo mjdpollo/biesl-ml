@@ -34,7 +34,10 @@ from src.poincare_train import (                                       # noqa: E
     EPOCHS, _json_default, run_loro,
 )
 
-FIG_DIR = ROOT / "figures" / "poincare_images"
+# Everything for this experiment lives in one self-contained, downloadable
+# folder under report/. Reports use local `figures/...` links.
+BUNDLE = ROOT / "report" / "poincare-cnn"
+FIG_DIR = BUNDLE / "figures"
 
 
 def plot_samples(data: dict, *, window_s: float, stride_s: float,
@@ -116,10 +119,10 @@ def write_report(result: dict, data: dict, *, window_s: float, stride_s: float,
     L.append("> 4 classes: **rest / meditation / plank / math**. ECG RR (NN) "
              "Poincaré plots rendered as 64×64 log-count **images** and classified "
              "with a small 2D-CNN.")
-    L.append("> Companion to the feature-based [`ml-report.md`](ml-report.md), the "
+    L.append("> Companion to the feature-based [`ml-report.md`](../ml-report.md), the "
              "60s-vs-2min comparison in "
              "[`poincare-cnn-window-comparison.md`](poincare-cnn-window-comparison.md), "
-             "and the Poincaré diagnostics in [`poincare-report.md`](poincare-report.md).\n")
+             "and the Poincaré diagnostics in [`poincare-report.md`](../poincare-report.md).\n")
 
     L.append("## Setup\n")
     L.append(f"- **Image.** x = RRₙ, y = RRₙ₊₁; range {RANGE_MS[0]:.0f}–{RANGE_MS[1]:.0f} ms; "
@@ -165,7 +168,7 @@ def write_report(result: dict, data: dict, *, window_s: float, stride_s: float,
              "(mean ± std across folds).\n")
 
     L.append("## Confusion matrix (LORO, summed across folds)\n")
-    L.append(f"![confusion](../figures/poincare_images/{confusion_png})\n")
+    L.append(f"![confusion](figures/{confusion_png})\n")
     L.append("Row-normalized (rows = true class, % of that class):\n")
     L.append("| true \\ pred | " + " | ".join(PHASE_CLASSES) + " | support |")
     L.append("|---|" + "|".join("---:" for _ in PHASE_CLASSES) + "|---:|")
@@ -189,7 +192,7 @@ def write_report(result: dict, data: dict, *, window_s: float, stride_s: float,
     L.append("")
 
     L.append("## Samples\n")
-    L.append(f"![samples](../figures/poincare_images/{samples_png})\n")
+    L.append(f"![samples](figures/{samples_png})\n")
 
     L.append("## Reproduce\n")
     L.append("```bash")
@@ -217,7 +220,7 @@ def main() -> None:
     tag = args.tag
     cache = ROOT / "outputs" / f"poincare_dataset{tag}.npz"
     json_path = ROOT / "outputs" / f"poincare_loro{tag}.json"
-    report_path = ROOT / "report" / f"poincare-cnn-report{tag}.md"
+    report_path = BUNDLE / f"poincare-cnn-report{tag}.md"
     samples_png = f"samples_by_class{tag}.png"
     confusion_png = f"confusion_loro{tag}.png"
 

@@ -1,6 +1,6 @@
 # Poincaré-image 2D-CNN — window-length comparison (60 s vs 2 min)
 
-> Same pipeline, model, exclusions and **LORO** protocol; only the window length (and therefore the number of windows) differs. Stride fixed at 20 s. See per-run detail in [`poincare-cnn-report.md`](poincare-cnn-report.md) and [`poincare-cnn-report_2min.md`](poincare-cnn-report_2min.md).
+> Same pipeline, model, exclusions and **LORO** protocol; only the window length (and therefore the number of windows) differs. Stride fixed at 20 s. See per-run detail in [`poincare-cnn-report.md`](poincare-cnn-report.md) and [`poincare-cnn-report_2min.md`](poincare-cnn-report_2min.md). Feature-based baselines: [`ml-report.md`](../ml-report.md).
 
 ## Dataset size by window
 

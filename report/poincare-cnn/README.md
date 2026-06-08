@@ -1,6 +1,6 @@
 # Poincaré-image 2D-CNN — report bundle
 
-Self-contained bundle: ECG RR (NN) Poincaré plots → 64×64 log-count images → small 2D-CNN, evaluated with leave-one-recording-out (LORO).
+Self-contained, downloadable bundle: ECG RR (NN) Poincaré plots → 64×64 log-count images → small 2D-CNN, evaluated with leave-one-recording-out (LORO). All figures are local to this folder.
 
 ## Contents
 

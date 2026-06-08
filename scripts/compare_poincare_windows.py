@@ -28,8 +28,9 @@ from src.pipeline import PHASE_CLASSES                                  # noqa: 
 
 # (display label, json tag)
 RUNS = [("60 s", ""), ("120 s (2 min)", "_2min")]
-FIG = ROOT / "figures" / "poincare_images" / "window_comparison.png"
-REPORT = ROOT / "report" / "poincare-cnn-window-comparison.md"
+BUNDLE = ROOT / "report" / "poincare-cnn"
+FIG = BUNDLE / "figures" / "window_comparison.png"
+REPORT = BUNDLE / "poincare-cnn-window-comparison.md"
 
 
 def _load(tag: str) -> dict | None:
@@ -78,7 +79,8 @@ def write_report(runs: list[tuple[str, dict]]) -> None:
              "window length (and therefore the number of windows) differs. "
              "Stride fixed at 20 s. See per-run detail in "
              "[`poincare-cnn-report.md`](poincare-cnn-report.md) and "
-             "[`poincare-cnn-report_2min.md`](poincare-cnn-report_2min.md).\n")
+             "[`poincare-cnn-report_2min.md`](poincare-cnn-report_2min.md). "
+             "Feature-based baselines: [`ml-report.md`](../ml-report.md).\n")
 
     # dataset sizes
     L.append("## Dataset size by window\n")
@@ -134,20 +136,20 @@ def write_report(runs: list[tuple[str, dict]]) -> None:
     L.append("3. **Both settings are weak** in absolute terms: meditation and plank "
              "are not learned cross-recording from RR shape alone. Neither window "
              "approaches the multi-modal feature pipelines in "
-             "[`ml-report.md`](ml-report.md) (1D-CNN macro-F1 0.75). Read this as a "
-             "single-modality (RR-only) baseline.")
+             "[`ml-report.md`](../ml-report.md) (1D-CNN macro-F1 0.75). Read this as "
+             "a single-modality (RR-only) baseline.")
     L.append("4. **Conclusion:** keep the **60-s** window for the Poincaré-image "
              "model; the 2-min spec is documented here for completeness but is "
              "strictly worse for this 4-class task.\n")
 
     L.append("## Chart\n")
-    L.append("![comparison](../figures/poincare_images/window_comparison.png)\n")
+    L.append("![comparison](figures/window_comparison.png)\n")
 
     L.append("## Confusion heatmaps\n")
     L.append("| 60 s | 2 min |")
     L.append("|---|---|")
-    L.append("| ![](../figures/poincare_images/confusion_loro.png) | "
-             "![](../figures/poincare_images/confusion_loro_2min.png) |")
+    L.append("| ![](figures/confusion_loro.png) | "
+             "![](figures/confusion_loro_2min.png) |")
     L.append("")
 
     REPORT.parent.mkdir(parents=True, exist_ok=True)

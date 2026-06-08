@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Assemble a self-contained, downloadable Poincaré-CNN report bundle.
+"""Write the index README for the self-contained Poincaré-CNN report bundle.
 
-Gathers the three Poincaré-image reports and every figure into a single
-folder `report/poincare-cnn/` with local (same-folder) image links, plus an
-index README. Download that one folder and everything renders offline.
+All reports and figures are generated directly into `report/poincare-cnn/`
+(by run_poincare.py and compare_poincare_windows.py), with local `figures/...`
+links — so this script only emits the index README that ties them together.
 
 Run after the experiments + comparison:
     uv run python scripts/run_poincare.py --window 60  --stride 20 --tag ""
@@ -13,60 +13,30 @@ Run after the experiments + comparison:
 """
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC_FIG = ROOT / "figures" / "poincare_images"
 BUNDLE = ROOT / "report" / "poincare-cnn"
-BUNDLE_FIG = BUNDLE / "figures"
-
-REPORTS = [
-    "poincare-cnn-report.md",
-    "poincare-cnn-report_2min.md",
-    "poincare-cnn-window-comparison.md",
-]
-FIGURES = [
-    "confusion_loro.png",
-    "confusion_loro_2min.png",
-    "samples_by_class.png",
-    "samples_by_class_2min.png",
-    "window_comparison.png",
-]
-
-
-def _rewrite_links(text: str) -> str:
-    # local figures live in ./figures/ next to the markdown
-    text = text.replace("../figures/poincare_images/", "figures/")
-    # cross-references to reports that stay in the parent report/ dir
-    text = text.replace("(ml-report.md)", "(../ml-report.md)")
-    text = text.replace("(poincare-report.md)", "(../poincare-report.md)")
-    return text
 
 
 def main() -> None:
-    BUNDLE_FIG.mkdir(parents=True, exist_ok=True)
-
-    for fig in FIGURES:
-        src = SRC_FIG / fig
-        if src.exists():
-            shutil.copy2(src, BUNDLE_FIG / fig)
-            print(f"  fig  {fig}")
-        else:
-            print(f"  !! missing figure {src}")
-
-    for rep in REPORTS:
-        src = ROOT / "report" / rep
-        if src.exists():
-            (BUNDLE / rep).write_text(_rewrite_links(src.read_text()))
-            print(f"  doc  {rep}")
-        else:
-            print(f"  !! missing report {src}")
+    (BUNDLE / "figures").mkdir(parents=True, exist_ok=True)
+    expected = [
+        "poincare-cnn-report.md", "poincare-cnn-report_2min.md",
+        "poincare-cnn-window-comparison.md",
+        "figures/window_comparison.png",
+        "figures/confusion_loro.png", "figures/confusion_loro_2min.png",
+        "figures/samples_by_class.png", "figures/samples_by_class_2min.png",
+    ]
+    for rel in expected:
+        if not (BUNDLE / rel).exists():
+            print(f"  !! missing {BUNDLE / rel} — run the experiment scripts first")
 
     index = [
         "# Poincaré-image 2D-CNN — report bundle\n",
-        "Self-contained bundle: ECG RR (NN) Poincaré plots → 64×64 log-count "
-        "images → small 2D-CNN, evaluated with leave-one-recording-out (LORO).\n",
+        "Self-contained, downloadable bundle: ECG RR (NN) Poincaré plots → "
+        "64×64 log-count images → small 2D-CNN, evaluated with "
+        "leave-one-recording-out (LORO). All figures are local to this folder.\n",
         "## Contents\n",
         "| Document | What |",
         "|---|---|",
@@ -92,8 +62,7 @@ def main() -> None:
         "![samples](figures/samples_by_class.png)\n",
     ]
     (BUNDLE / "README.md").write_text("\n".join(index))
-    print(f"  idx  README.md")
-    print(f"\n  -> bundle ready: {BUNDLE}")
+    print(f"  -> wrote {BUNDLE / 'README.md'}")
 
 
 if __name__ == "__main__":
